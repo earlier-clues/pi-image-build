@@ -121,12 +121,12 @@ PIBUILD="$MNT/tmp/pibuild"
 mkdir -p "$PIBUILD/lib" "$PIBUILD/payload" "$PIBUILD/mounts"
 
 say "staging payload + lib into chroot"
-rsync -a --delete /lib/    "$PIBUILD/lib/"
-rsync -a --delete /payload/ "$PIBUILD/payload/"
+rsync -a --delete /pibuild/lib/    "$PIBUILD/lib/"
+rsync -a --delete /pibuild/payload/ "$PIBUILD/payload/"
 
-# Extra mounts (forwarded via /mounts/<label> bind-mounts on the container).
-if [[ -d /mounts ]]; then
-    for label_dir in /mounts/*/; do
+# Extra mounts (forwarded via /pibuild/mounts/<label> bind-mounts on the container).
+if [[ -d /pibuild/mounts ]]; then
+    for label_dir in /pibuild/mounts/*/; do
         [[ -d "$label_dir" ]] || continue
         label="$(basename "$label_dir")"
         install -d -m 755 "$PIBUILD/mounts/$label"

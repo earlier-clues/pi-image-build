@@ -146,14 +146,24 @@ ok "container: $IMAGE_TAG"
 
 # ----- assemble docker args -----------------------------------------------
 
+# Preserve the base file's compression extension in the container path,
+# since pipeline/remaster.sh dispatches on it.
+case "$BASE_FILE" in
+    *.img.xz) IN_NAME="base.img.xz" ;;
+    *.img.gz) IN_NAME="base.img.gz" ;;
+    *.xz)     IN_NAME="base.img.xz" ;;
+    *.gz)     IN_NAME="base.img.gz" ;;
+    *.img|*)  IN_NAME="base.img"    ;;
+esac
+
 DOCKER_ARGS=(
     --rm --privileged
-    -v "$BASE_FILE":/in/base.img:ro
+    -v "$BASE_FILE":/in/"$IN_NAME":ro
     -v "$(dirname "$OUTPUT")":/out
     -v "$HERE/pipeline":/pipeline:ro
-    -v "$LIB_DIR":/lib:ro
-    -v "$PAYLOAD_DIR":/payload:ro
-    -e "IN_IMG=/in/base.img"
+    -v "$LIB_DIR":/pibuild/lib:ro
+    -v "$PAYLOAD_DIR":/pibuild/payload:ro
+    -e "IN_IMG=/in/$IN_NAME"
     -e "OUT_IMG=/out/$(basename "$OUTPUT")"
     -e "OUT_FORMAT=$OUTPUT_FORMAT"
     -e "EXTRA_MB=$EXTRA_MB"
@@ -170,7 +180,7 @@ if (( ${#MOUNTS[@]} )); then
         [[ "$label" != "$m" ]] || { echo "bad --mount '$m' (need LABEL=PATH)" >&2; exit 2; }
         [[ -d "$path" ]] || { echo "--mount path not found: $path" >&2; exit 2; }
         path="$(cd "$path" && pwd)"
-        DOCKER_ARGS+=(-v "$path":/mounts/"$label":ro)
+        DOCKER_ARGS+=(-v "$path":/pibuild/mounts/"$label":ro)
         MOUNT_LABELS+=("$label")
     done
     DOCKER_ARGS+=(-e "MOUNT_LABELS=${MOUNT_LABELS[*]}")
