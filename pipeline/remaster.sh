@@ -56,6 +56,13 @@ ok "partition resized"
 # ----- loop mount ----------------------------------------------------------
 
 umount_all() {
+    # Unmount in reverse order. Bind-mounted payload/lib/mounts go first
+    # because they're inside the rootfs.
+    if [[ -d "$MNT/tmp/pibuild" ]]; then
+        for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib"; do
+            [[ -d "$sub" ]] && umount "$sub" 2>/dev/null || true
+        done
+    fi
     for m in "$MNT/dev/pts" "$MNT/dev" "$MNT/proc" "$MNT/sys" \
              "$MNT/boot/firmware" "$MNT"; do
         umount "$m" 2>/dev/null || true
@@ -115,31 +122,38 @@ EOF
 chmod +x "$MNT/usr/sbin/policy-rc.d"
 ok "chroot ready"
 
-# ----- stage payload + lib + extra mounts ---------------------------------
+# ----- bind-mount payload + lib + extra mounts into chroot ----------------
+# Bind-mounting (vs rsync) avoids copying potentially-large mount sources
+# into the image partition. The image stays the size of the OS + the things
+# the payload's build.sh deliberately writes.
 
 PIBUILD="$MNT/tmp/pibuild"
 mkdir -p "$PIBUILD/lib" "$PIBUILD/payload" "$PIBUILD/mounts"
 
-say "staging payload + lib into chroot"
-rsync -a --delete /pibuild/lib/    "$PIBUILD/lib/"
-rsync -a --delete /pibuild/payload/ "$PIBUILD/payload/"
+say "binding payload + lib into chroot"
+mount --bind /pibuild/lib     "$PIBUILD/lib"
+mount --bind /pibuild/payload "$PIBUILD/payload"
 
-# Extra mounts (forwarded via /pibuild/mounts/<label> bind-mounts on the container).
 if [[ -d /pibuild/mounts ]]; then
     for label_dir in /pibuild/mounts/*/; do
         [[ -d "$label_dir" ]] || continue
         label="$(basename "$label_dir")"
         install -d -m 755 "$PIBUILD/mounts/$label"
-        rsync -a "$label_dir" "$PIBUILD/mounts/$label/"
+        mount --bind "$label_dir" "$PIBUILD/mounts/$label"
     done
 fi
-ok "staged"
+ok "bound"
 
 [[ -f "$PIBUILD/payload/build.sh" ]] || {
     echo "error: payload at $PAYLOAD_HOST has no build.sh" >&2
     exit 2
 }
-chmod +x "$PIBUILD/payload/build.sh"
+# Don't chmod: the bind mount is read-only. Caller is responsible for the
+# executable bit on build.sh.
+[[ -x "$PIBUILD/payload/build.sh" ]] || {
+    echo "error: $PAYLOAD_HOST/build.sh is not executable (chmod +x it)" >&2
+    exit 2
+}
 
 # ----- run payload's build.sh inside chroot -------------------------------
 
@@ -170,7 +184,12 @@ chroot "$MNT" env -i "${CHROOT_ENV[@]}" \
 ok "payload customization done"
 
 # ----- clean up build state inside image ----------------------------------
+# Unmount bind mounts before removing the dirs, otherwise rm follows into
+# the source trees on the container.
 
+for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib"; do
+    [[ -d "$sub" ]] && umount "$sub" 2>/dev/null || true
+done
 rm -rf "$MNT/tmp/pibuild"
 rm -f "$MNT/usr/bin/qemu-aarch64-static"
 rm -f "$MNT/usr/sbin/policy-rc.d"
