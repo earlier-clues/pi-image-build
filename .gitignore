@@ -1,0 +1,6 @@
+out/
+.cache/
+*.img
+*.img.xz
+*.img.gz
+.DS_Store
