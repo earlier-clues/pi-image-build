@@ -8,7 +8,7 @@ A small, generic Pi OS image customizer. Decompresses the official Raspberry Pi 
 |---|---|
 | `bin/build-image.sh` | public CLI. Build an image from a payload directory. |
 | `bin/flash-image.sh` | public CLI. Write a built image to an SD card (macOS). |
-| `bin/test-image.README.md` | placeholder for a planned QEMU smoke-test runner. |
+| `bin/test-image.sh` | boots a built image under QEMU raspi3b emulation as a "kernel + ext4 mount worked" sanity check. Doesn't reach userspace — see caveats. |
 | `pipeline/Dockerfile` | privileged build container (Debian trixie + parted + kpartx + qemu-user-static). |
 | `pipeline/remaster.sh` | runs inside the container. Decompress → grow → mount → chroot → run payload → repack. |
 | `lib/hostname.sh` | `set_hostname`, `reset_machine_id` |
@@ -62,5 +62,5 @@ The wrapper owns: which env vars exist, where the SSH key lives, which extra mou
 ## Caveats
 
 - **macOS only.** Linux is not supported — there's a real history of a binfmt-misc registration in the container nuking the Mac Docker build environment when someone tried, and the seam hasn't been worked out. `PIBUILD_FORCE_NON_DARWIN=1` bypasses the check if you want to be the person who fixes it.
-- **No QEMU smoke test yet.** Planned — see `bin/test-image.README.md`.
+- **QEMU testing is limited.** `bin/test-image.sh` boots under raspi3b emulation and confirms the kernel reaches the EXT4 root mount. After that, init exits because Pi-3 emulation can't fully run a Pi-4 userspace — that's not a bug in your image, it's the price of QEMU not having `-M raspi4b` working on Bookworm. Reaching ext4 mount means the image is bootable enough that real Pi-4 hardware would proceed past where QEMU got. For full smoke-testing of services/SSH/wifi, flash to real hardware.
 - **Trusted-LAN posture.** `lib/user.sh` includes `add_to_sudoers_nopasswd` and `lib/ssh.sh` includes `enable_ssh` + `disable_password_auth`. These match what gets baked into a self-configuring Pi behind an AP, where physical access to the SD card is the threat. Don't enable both on something you'd ship to a stranger without re-evaluating.
