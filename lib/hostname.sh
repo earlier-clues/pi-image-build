@@ -5,8 +5,11 @@ LIB_API_VERSION=1
 set_hostname() {
     local name="$1"
     echo "$name" > /etc/hostname
-    sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$name/" /etc/hosts \
-        || printf '127.0.1.1\t%s\n' "$name" >> /etc/hosts
+    if grep -qE '^127\.0\.1\.1\b' /etc/hosts; then
+        sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$name/" /etc/hosts
+    else
+        printf '127.0.1.1\t%s\n' "$name" >> /etc/hosts
+    fi
 }
 
 # Reset /etc/machine-id so each Pi from this image generates its own on first

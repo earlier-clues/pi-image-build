@@ -78,6 +78,7 @@ cleanup_loop() {
 
 say "attaching loop device"
 LOOP="$(losetup --find --show "$IMG")"
+trap 'umount_all; cleanup_loop' EXIT
 kpartx -av "$LOOP" >/dev/null
 LOOP_BASENAME="$(basename "$LOOP")"
 PART1="/dev/mapper/${LOOP_BASENAME}p1"
@@ -88,7 +89,6 @@ for _ in $(seq 1 20); do
 done
 [[ -b "$PART2" ]] || { echo "error: $PART2 never appeared"; ls /dev/mapper/ >&2; exit 3; }
 ok "loop: $LOOP → $PART1, $PART2"
-trap 'umount_all; cleanup_loop' EXIT
 
 e2fsck -f -y "$PART2" >/dev/null 2>&1 || true
 resize2fs "$PART2" >/dev/null
