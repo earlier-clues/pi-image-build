@@ -1,0 +1,113 @@
+#!/bin/bash
+# Dump a diagnostic snapshot to /boot/firmware/mpv-loop-boot.log on every
+# boot. /boot/firmware is the FAT partition, so the log is readable from
+# any OS — pull the SD, plug into your Mac, open the file. Designed for
+# the case where the pi never came up on the network and there's nowhere
+# else to look.
+#
+# Adapted from aether/payload/_common/files/videosync-boot-report. Keep
+# in sync until the boot-report helper is hoisted into pi-image-build/lib.
+set +e  # always finish writing the report
+
+LOG=/boot/firmware/mpv-loop-boot.log
+[ -w /boot/firmware ] || exit 0
+
+unit_installed() {
+    systemctl list-unit-files "$1" --no-legend 2>/dev/null | grep -q .
+}
+
+{
+    echo
+    echo "======================================================================"
+    echo "boot report: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    echo "uptime:      $(cut -d' ' -f1 /proc/uptime)s"
+    echo "hostname:    $(hostname)"
+    echo "kernel:      $(uname -r)"
+    echo "build:       $(grep PRETTY_NAME /etc/os-release)"
+    echo "======================================================================"
+
+    echo
+    echo "--- service states ---"
+    for u in \
+        pibuild-wifi-regdom.service \
+        NetworkManager.service wpa_supplicant.service \
+        wifi-powersave-off.service \
+        mpv-loop-assign-hostname.service mpv-loop.service \
+        ssh.service
+    do
+        unit_installed "$u" || continue
+        printf "  %-36s %s\n" "$u" "$(systemctl is-active "$u")"
+    done
+
+    echo
+    echo "--- wifi radio ---"
+    /usr/sbin/rfkill list 2>&1
+    echo
+    /usr/sbin/iw reg get 2>&1 | head -5
+    echo
+    /usr/sbin/iw dev wlan0 info 2>&1
+
+    echo
+    echo "--- wlan0 addresses ---"
+    ip addr show wlan0 2>&1
+
+    echo
+    echo "--- visible SSIDs (scan) ---"
+    # If the configured AP_SSID isn't in this list, the radio literally
+    # can't see it — wrong band, out of range, or AP down. Bring wlan0
+    # up first because NM may have left it down if association failed.
+    ip link set wlan0 up 2>/dev/null
+    /usr/sbin/iw dev wlan0 scan 2>&1 | awk '
+        /^BSS/          { bssid=$2 }
+        /signal:/       { sig=$2 }
+        /freq:/         { freq=$2 }
+        /SSID:/         { ssid=substr($0, index($0,$2));
+                          printf "  %-32s  %s dBm  %s MHz  %s\n", ssid, sig, freq, bssid }
+    ' | sort -k2 -n -r | head -20
+
+    echo
+    echo "--- NetworkManager ---"
+    if command -v nmcli >/dev/null 2>&1; then
+        nmcli -t device status 2>&1
+        echo
+        nmcli -t connection show 2>&1
+        echo
+        echo "  installed connection profiles:"
+        ls -la /etc/NetworkManager/system-connections/ 2>&1 | sed 's/^/    /'
+    else
+        echo "(nmcli not installed)"
+    fi
+
+    echo
+    echo "--- systemd-rfkill state (should be masked) ---"
+    systemctl is-enabled systemd-rfkill.service systemd-rfkill.socket 2>&1
+
+    echo
+    echo "--- video files baked in ---"
+    ls -la /home/pi/video/ 2>&1 | sed 's/^/  /'
+
+    echo
+    echo "--- mpv config ---"
+    cat /etc/mpv/mpv.conf 2>&1 | sed 's/^/  /'
+
+    echo
+    echo "--- key service journals (last 40 each) ---"
+    for u in pibuild-wifi-regdom.service NetworkManager.service \
+             mpv-loop-assign-hostname.service mpv-loop.service
+    do
+        unit_installed "$u" || continue
+        echo
+        echo "  >>> $u"
+        journalctl -u "$u" -b --no-pager -n 40 2>&1 | sed 's/^/    /'
+    done
+
+    echo
+    echo "--- boot-time errors ---"
+    journalctl -b -p err --no-pager 2>&1 | tail -30
+
+    echo
+    echo "--- end of report ---"
+    echo
+} >> "$LOG" 2>&1
+
+sync

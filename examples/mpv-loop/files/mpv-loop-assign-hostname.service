@@ -1,0 +1,11 @@
+[Unit]
+Description=Assign mpv-loop hostname from wlan0 MAC
+Before=NetworkManager.service avahi-daemon.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/mpv-loop-assign-hostname
+
+[Install]
+WantedBy=multi-user.target

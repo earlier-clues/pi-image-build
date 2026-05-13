@@ -1,0 +1,6 @@
+[Unit]
+Description=Dump boot diagnostics to /boot/firmware/mpv-loop-boot.log
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/mpv-loop-boot-report

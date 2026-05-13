@@ -1,0 +1,26 @@
+#!/bin/bash
+# Pick the first file in $VIDEO_DIR and hand it to mpv on infinite loop.
+# Lives at /usr/local/bin/mpv-loop, launched by mpv-loop.service.
+set -euo pipefail
+
+DIR="${VIDEO_DIR:-/home/pi/video}"
+
+shopt -s nullglob
+files=("$DIR"/*)
+shopt -u nullglob
+
+if (( ${#files[@]} == 0 )); then
+    echo "mpv-loop: no files in $DIR — nothing to play" >&2
+    exit 1
+fi
+
+VIDEO="${files[0]}"
+if [[ ! -f "$VIDEO" ]]; then
+    # Catches dangling symlinks shipped by a buggy bake. mpv would exit
+    # 2/INVALIDARGUMENT in a tight restart loop and the systemd journal
+    # wouldn't say why.
+    echo "mpv-loop: $VIDEO is not a regular file (dangling symlink?)" >&2
+    exit 1
+fi
+
+exec /usr/bin/mpv --loop-file=inf "$VIDEO"

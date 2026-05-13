@@ -1,0 +1,24 @@
+#!/bin/bash
+# Derive hostname from wlan0 MAC so each pi has a unique identity on the
+# LAN (mDNS, DHCP leases, journal hostname). Idempotent — runs every boot
+# with the same result on the same hardware, or picks up a new name if
+# the SD card moved to a different device.
+set -euo pipefail
+
+MAC_FILE=/sys/class/net/wlan0/address
+[ -r "$MAC_FILE" ] || exit 0
+
+MAC=$(tr -d ':' < "$MAC_FILE")
+SUFFIX=${MAC: -6}
+NEWHOST="mpv-loop-${SUFFIX}"
+
+CURRENT=$(cat /etc/hostname 2>/dev/null || echo "")
+[ "$CURRENT" = "$NEWHOST" ] && exit 0
+
+echo "$NEWHOST" > /etc/hostname
+hostname "$NEWHOST"
+if grep -qE '^127\.0\.1\.1' /etc/hosts; then
+    sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$NEWHOST/" /etc/hosts
+else
+    printf '127.0.1.1\t%s\n' "$NEWHOST" >> /etc/hosts
+fi

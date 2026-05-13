@@ -4,3 +4,6 @@ out/
 *.img.xz
 *.img.gz
 .DS_Store
+examples/*/content/
+examples/*/.env
+examples/*/*.pub

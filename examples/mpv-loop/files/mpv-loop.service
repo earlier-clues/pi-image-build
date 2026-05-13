@@ -1,0 +1,18 @@
+[Unit]
+Description=Loop a video with mpv (KMS direct)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi
+ExecStart=/usr/local/bin/mpv-loop
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
