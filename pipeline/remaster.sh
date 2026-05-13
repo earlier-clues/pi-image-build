@@ -206,6 +206,6 @@ cleanup_loop
 say "compressing ($OUT_FORMAT)"
 case "$OUT_FORMAT" in
     xz) xz -T0 -f "$IMG"; mv "$IMG.xz" "$OUT_IMG" ;;
-    gz) gzip -f "$IMG";   mv "$IMG.gz" "$OUT_IMG" ;;
+    gz) pigz -f "$IMG";   mv "$IMG.gz" "$OUT_IMG" ;;
 esac
 ok "output: $OUT_IMG ($(stat -c%s "$OUT_IMG") bytes)"
