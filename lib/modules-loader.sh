@@ -28,19 +28,21 @@ parse_modules_list() {
     done < "$list_file"
 
     # Check for duplicates using uniq -d.
-    local -a duplicates=()
-    while IFS= read -r dup; do
-        duplicates+=("$dup")
-    done < <(printf '%s\n' "${names[@]}" | sort | uniq -d)
-    if (( ${#duplicates[@]} > 0 )); then
-        for dup in "${duplicates[@]}"; do
-            echo "error: duplicate module in modules.list: $dup" >&2
-        done
-        return 2
-    fi
+    if (( ${#names[@]} > 0 )); then
+        local -a duplicates=()
+        while IFS= read -r dup; do
+            duplicates+=("$dup")
+        done < <(printf '%s\n' "${names[@]}" | sort | uniq -d)
+        if (( ${#duplicates[@]} > 0 )); then
+            for dup in "${duplicates[@]}"; do
+                echo "error: duplicate module in modules.list: $dup" >&2
+            done
+            return 2
+        fi
 
-    # Output in original order.
-    printf '%s\n' "${names[@]}"
+        # Output in original order.
+        printf '%s\n' "${names[@]}"
+    fi
 }
 
 # resolve_module <name> <payload-dir> <repo-modules-dir>
@@ -80,7 +82,7 @@ validate_schemas() {
     local -a module_dirs=("$@")
     local err_file exports_file
     local module_dir module_name
-    local -i exit_code=0
+    local -a failed_modules=()
 
     # Create temp files for error and exports collection.
     err_file="$(mktemp)"
@@ -143,13 +145,22 @@ validate_schemas() {
             # shellcheck source=/dev/null
             source "$schema_file"
         ) || {
-            exit_code=$?
+            failed_modules+=("$module_name")
         }
     done
 
     # Check if any errors were collected.
     if [[ -s "$err_file" ]]; then
         cat "$err_file" >&2
+        return 2
+    fi
+
+    # Check if any schema exited non-zero (schema syntax error, readonly violation, etc.)
+    if (( ${#failed_modules[@]} > 0 )); then
+        echo "error: one or more schemas exited non-zero during validation:" >&2
+        for module_name in "${failed_modules[@]}"; do
+            echo "  module $module_name" >&2
+        done
         return 2
     fi
 
