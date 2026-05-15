@@ -1,0 +1,6 @@
+# hello-payload — the new-contract smoke test. core does the baseline
+# OS config (hostname, user, ssh, wifi, …); hello writes a sentinel file
+# so CI can confirm the chroot ran end-to-end.
+
+core
+hello
