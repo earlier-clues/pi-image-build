@@ -7,3 +7,6 @@ out/
 examples/*/content/
 examples/*/.env
 examples/*/*.pub
+
+# synthetic module runner — regenerated per build
+build-scratch/

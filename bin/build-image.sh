@@ -16,6 +16,7 @@
 #   --extra-mb N             extra MB to grow the root partition (default: 1536)
 #   --mount LABEL=PATH       extra dir to mount into the chroot at $MOUNTS_DIR/<label> (repeatable)
 #   --env-regex REGEX        forward host env vars matching REGEX into the chroot (repeatable)
+#   --env-file PATH          source env vars from PATH before dispatch (default: <payload>/.env if present)
 #   --cache DIR              base-image cache (default: $HOME/.cache/pi-image-build)
 #
 # Canonical customization env vars forwarded automatically when set:
@@ -55,6 +56,7 @@ BASE="${PIBUILD_BASE:-https://downloads.raspberrypi.com/raspios_lite_arm64_lates
 BASE_SHA256=""
 EXTRA_MB="${PIBUILD_EXTRA_MB:-1536}"
 CACHE="${PIBUILD_CACHE:-$HOME/.cache/pi-image-build}"
+ENV_FILE=""
 MOUNTS=()
 ENV_REGEXES=()
 
@@ -67,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         --extra-mb)          EXTRA_MB="$2"; shift 2 ;;
         --mount)             MOUNTS+=("$2"); shift 2 ;;
         --env-regex)         ENV_REGEXES+=("$2"); shift 2 ;;
+        --env-file)          ENV_FILE="$2"; shift 2 ;;
         --cache)             CACHE="$2"; shift 2 ;;
         -h|--help)           usage; exit 0 ;;
         -*)                  echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
@@ -80,18 +83,46 @@ done
 
 [[ -n "$PAYLOAD_DIR" ]] || { echo "error: payload directory required" >&2; usage >&2; exit 2; }
 [[ -d "$PAYLOAD_DIR" ]] || { echo "error: payload dir not found: $PAYLOAD_DIR" >&2; exit 2; }
-[[ -f "$PAYLOAD_DIR/build.sh" ]] || { echo "error: $PAYLOAD_DIR has no build.sh" >&2; exit 2; }
+
+# Resolve payload to absolute path now so contract dispatch (next) and
+# subsequent docker mounts both use the same canonical path.
+PAYLOAD_DIR="$(cd "$PAYLOAD_DIR" && pwd)"
+
+# Contract dispatch: modules.list (new) > build.sh (legacy) > error.
+if [[ -f "$PAYLOAD_DIR/modules.list" ]]; then
+    PAYLOAD_CONTRACT="modules"
+elif [[ -f "$PAYLOAD_DIR/build.sh" ]]; then
+    PAYLOAD_CONTRACT="legacy"
+else
+    echo "error: $PAYLOAD_DIR has neither modules.list nor build.sh" >&2
+    exit 2
+fi
 
 case "$OUTPUT_FORMAT" in
     xz|gz) ;;
     *) echo "--output-format must be xz or gz, got '$OUTPUT_FORMAT'" >&2; exit 2 ;;
 esac
 
-# Resolve to absolute paths for docker volume mounts.
-PAYLOAD_DIR="$(cd "$PAYLOAD_DIR" && pwd)"
+
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 LIB_DIR="$HERE/lib"
 mkdir -p "$CACHE"
+
+# Env-file resolution (new contract only; legacy payloads have always
+# expected the caller to set env vars before invoking build-image.sh).
+if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
+    if [[ -z "$ENV_FILE" && -f "$PAYLOAD_DIR/.env" ]]; then
+        ENV_FILE="$PAYLOAD_DIR/.env"
+    fi
+    if [[ -n "$ENV_FILE" ]]; then
+        [[ -f "$ENV_FILE" ]] || { echo "error: --env-file not found: $ENV_FILE" >&2; exit 2; }
+        set -a
+        # shellcheck source=/dev/null
+        source "$ENV_FILE"
+        set +a
+        ok "env-file: $ENV_FILE"
+    fi
+fi
 
 say() { printf "\033[1;36m==>\033[0m %s\n" "$*"; }
 ok()  { printf "  \033[1;32m✓\033[0m %s\n" "$*"; }
@@ -186,10 +217,32 @@ if (( ${#MOUNTS[@]} )); then
     DOCKER_ARGS+=(-e "MOUNT_LABELS=${MOUNT_LABELS[*]}")
 fi
 
+# New-contract: bind-mount the repo-level modules dir, copy in the runner,
+# and tell remaster.sh to invoke it.
+if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
+    DOCKER_ARGS+=(
+        -v "$MODULES_REPO_DIR":/pibuild/modules:ro
+        -v "$RUN_MODULES_SH":/pibuild/run-modules.sh:ro
+        -e "BUILD_SCRIPT=/tmp/pibuild/run-modules.sh"
+    )
+fi
+
 # Canonical customization vars: forward if set in the host env.
 for v in HOSTNAME TIMEZONE KEYMAP PI_USER ENCRYPTED_PASSWORD SSH_PUBKEY; do
     [[ -n "${!v:-}" ]] && DOCKER_ARGS+=(-e "$v")
 done
+
+# New-contract: forward every schema-resolved var to the chroot
+# regardless of --env-regex. The user did not opt these in; the schemas
+# declared them as part of the module's contract.
+if [[ "$PAYLOAD_CONTRACT" == "modules" && -n "${SCHEMA_DEFAULTS:-}" ]]; then
+    # SCHEMA_DEFAULTS is `export NAME=VALUE` lines. Extract NAMEs.
+    while IFS= read -r line; do
+        [[ "$line" =~ ^export\ ([A-Za-z_][A-Za-z0-9_]*)= ]] || continue
+        name="${BASH_REMATCH[1]}"
+        DOCKER_ARGS+=(-e "$name")
+    done <<< "$SCHEMA_DEFAULTS"
+fi
 
 # --env-regex: collect matching host env vars into PASSTHROUGH (newline-
 # separated NAME=VALUE), then forward as a single env var. This avoids the
@@ -206,6 +259,62 @@ if (( ${#ENV_REGEXES[@]} )); then
         done
     done < <(env)
     DOCKER_ARGS+=(-e "PASSTHROUGH=$PASSTHROUGH")
+fi
+
+# New-contract: parse modules.list, validate schemas host-side, emit a
+# synthetic runner. Anything that aborts here aborts BEFORE docker starts.
+RUN_MODULES_SH=""
+MODULES_REPO_DIR="$HERE/modules"
+if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
+    # shellcheck source=../lib/modules-loader.sh
+    source "$HERE/lib/modules-loader.sh"
+
+    say "parsing modules.list"
+    mapfile -t MODULE_NAMES < <(parse_modules_list "$PAYLOAD_DIR/modules.list")
+    (( ${#MODULE_NAMES[@]} > 0 )) || { echo "error: modules.list is empty after stripping comments" >&2; exit 2; }
+
+    # Resolve each name to its host-side module dir.
+    MODULE_HOST_DIRS=()
+    MODULE_CHROOT_DIRS=()
+    for name in "${MODULE_NAMES[@]}"; do
+        host_dir="$(resolve_module "$name" "$PAYLOAD_DIR" "$MODULES_REPO_DIR")"
+        MODULE_HOST_DIRS+=("$host_dir")
+        # Translate host-side path to chroot-side path:
+        # - <PAYLOAD_DIR>/modules/<name>  → /tmp/pibuild/payload/modules/<name>
+        # - <MODULES_REPO_DIR>/<name>     → /tmp/pibuild/modules/<name>
+        # Use [[ == ]] string-prefix matching rather than a `case` glob:
+        # PAYLOAD_DIR could in principle contain glob metachars, and
+        # case-glob would match unpredictably. [[ "$host_dir" == "$PAYLOAD_DIR"/* ]]
+        # is a literal prefix test.
+        if   [[ "$host_dir" == "$PAYLOAD_DIR"/* ]]; then
+            MODULE_CHROOT_DIRS+=("/tmp/pibuild/payload/${host_dir#"$PAYLOAD_DIR"/}")
+        elif [[ "$host_dir" == "$MODULES_REPO_DIR"/* ]]; then
+            MODULE_CHROOT_DIRS+=("/tmp/pibuild/modules/${host_dir#"$MODULES_REPO_DIR"/}")
+        else
+            echo "internal error: unexpected module path $host_dir" >&2
+            exit 4
+        fi
+    done
+    ok "modules: ${MODULE_NAMES[*]}"
+
+    # Validate schemas, collect resolved defaults into SCHEMA_DEFAULTS.
+    say "validating schemas"
+    SCHEMA_DEFAULTS="$(validate_schemas "${MODULE_HOST_DIRS[@]}")"
+    # SCHEMA_DEFAULTS is a series of `export NAME=VALUE` lines. Source
+    # them so the values are visible to the docker `-e` forwarding below
+    # and so the `--env-regex` loop sees them too.
+    if [[ -n "$SCHEMA_DEFAULTS" ]]; then
+        # shellcheck disable=SC1091
+        eval "$SCHEMA_DEFAULTS"
+    fi
+    ok "schemas validated"
+
+    # Emit the synthetic runner.
+    mkdir -p "$HERE/build-scratch"
+    RUN_MODULES_SH="$HERE/build-scratch/run-modules.sh"
+    emit_runner "$RUN_MODULES_SH" "${MODULE_CHROOT_DIRS[@]}"
+    chmod +x "$RUN_MODULES_SH"
+    ok "runner: $RUN_MODULES_SH"
 fi
 
 # ----- run -----------------------------------------------------------------
