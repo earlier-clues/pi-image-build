@@ -1,0 +1,115 @@
+#!/bin/bash
+# Dump a diagnostic snapshot to /boot/firmware/@@LOG_NAME@@ at T+90s and
+# again at T+180s on every boot. /boot/firmware is the FAT partition, so
+# the log is readable from any OS — pull the SD, plug into your Mac, open
+# the file. Designed for the case where the Pi never came up on the
+# network and there's nowhere else to look.
+#
+# Configured at image-build time by lib/boot-report.sh::install_boot_report:
+#   @@LOG_NAME@@       — filename under /boot/firmware/
+#   @@UNITS@@          — space-separated unit names to `is-active`
+#   @@JOURNAL_UNITS@@  — space-separated unit names to journalctl-tail
+set +e  # always finish writing the report
+
+LOG=/boot/firmware/@@LOG_NAME@@
+[ -w /boot/firmware ] || exit 0
+
+UNITS="@@UNITS@@"
+JOURNAL_UNITS="@@JOURNAL_UNITS@@"
+
+unit_installed() {
+    systemctl list-unit-files "$1" --no-legend 2>/dev/null | grep -q .
+}
+
+write_report() {
+    {
+        echo
+        echo "======================================================================"
+        echo "boot report: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        echo "uptime:      $(cut -d' ' -f1 /proc/uptime)s"
+        echo "hostname:    $(hostname)"
+        echo "kernel:      $(uname -r)"
+        echo "build:       $(grep PRETTY_NAME /etc/os-release)"
+        echo "======================================================================"
+
+        if [ -n "$UNITS" ]; then
+            echo
+            echo "--- service states ---"
+            for u in $UNITS; do
+                unit_installed "$u" || continue
+                printf "  %-36s %s\n" "$u" "$(systemctl is-active "$u")"
+            done
+        fi
+
+        echo
+        echo "--- wifi radio ---"
+        /usr/sbin/rfkill list 2>&1
+        echo
+        /usr/sbin/iw reg get 2>&1 | head -5
+        echo
+        /usr/sbin/iw dev wlan0 info 2>&1
+
+        echo
+        echo "--- wlan0 addresses ---"
+        ip addr show wlan0 2>&1
+
+        echo
+        echo "--- visible SSIDs (scan) ---"
+        # Bring wlan0 up first because NM may have left it down if association failed.
+        ip link set wlan0 up 2>/dev/null
+        /usr/sbin/iw dev wlan0 scan 2>&1 | awk '
+            /^BSS/    { bssid=$2 }
+            /signal:/ { sig=$2 }
+            /freq:/   { freq=$2 }
+            /SSID:/   { ssid=substr($0, index($0,$2));
+                        printf "  %-32s  %s dBm  %s MHz  %s\n", ssid, sig, freq, bssid }
+        ' | sort -k2 -n -r | head -20
+
+        echo
+        echo "--- NetworkManager ---"
+        if command -v nmcli >/dev/null 2>&1; then
+            nmcli -t device status 2>&1
+            echo
+            nmcli -t connection show 2>&1
+            echo
+            echo "  installed connection profiles:"
+            ls -la /etc/NetworkManager/system-connections/ 2>&1 | sed 's/^/    /'
+        else
+            echo "(nmcli not installed)"
+        fi
+
+        echo
+        echo "--- systemd-rfkill state (should be masked by core) ---"
+        systemctl is-enabled systemd-rfkill.service systemd-rfkill.socket 2>&1
+
+        echo
+        echo "--- NM drop-ins ---"
+        find /etc/systemd/system/NetworkManager.service.d/ -type f 2>/dev/null \
+            | while read -r f; do echo "  >>> $f"; sed 's/^/    /' "$f"; done
+
+        if [ -n "$JOURNAL_UNITS" ]; then
+            echo
+            echo "--- service journals (last 40 each) ---"
+            for u in $JOURNAL_UNITS; do
+                unit_installed "$u" || continue
+                echo
+                echo "  >>> $u"
+                journalctl -u "$u" -b --no-pager -n 40 2>&1 | sed 's/^/    /'
+            done
+        fi
+
+        echo
+        echo "--- boot-time errors ---"
+        journalctl -b -p err --no-pager 2>&1 | tail -30
+
+        echo
+        echo "--- end of report ---"
+        echo
+    } >> "$LOG" 2>&1
+    sync
+}
+
+# Fire at T+90s (when the timer kicks us off), again ~T+180s.
+write_report
+sleep 90
+write_report
