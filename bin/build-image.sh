@@ -44,7 +44,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 usage() {
-    sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'
+    awk '/^# Usage:/,/^# Platform:/ {print}' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # ----- arg parse -----------------------------------------------------------
@@ -129,6 +129,68 @@ fi
 
 sha256() { command -v sha256sum >/dev/null && sha256sum "$@" || shasum -a 256 "$@"; }
 
+# Initialize variables for new-contract dispatch (may be populated next).
+RUN_MODULES_SH=""
+MODULES_REPO_DIR="$HERE/modules"
+
+# New-contract: parse modules.list, validate schemas host-side, emit a
+# synthetic runner. Anything that aborts here aborts BEFORE docker starts.
+if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
+    # shellcheck source=../lib/modules-loader.sh
+    source "$HERE/lib/modules-loader.sh"
+
+    say "parsing modules.list"
+    parsed_list="$(parse_modules_list "$PAYLOAD_DIR/modules.list")"
+    MODULE_NAMES=()
+    while IFS= read -r name; do
+        [[ -n "$name" ]] && MODULE_NAMES+=("$name")
+    done <<< "$parsed_list"
+    [[ ${#MODULE_NAMES[@]} -gt 0 ]] || { echo "error: modules.list is empty after stripping comments" >&2; exit 2; }
+
+    # Resolve each name to its host-side module dir.
+    MODULE_HOST_DIRS=()
+    MODULE_CHROOT_DIRS=()
+    for name in "${MODULE_NAMES[@]}"; do
+        host_dir="$(resolve_module "$name" "$PAYLOAD_DIR" "$MODULES_REPO_DIR")"
+        MODULE_HOST_DIRS+=("$host_dir")
+        # Translate host-side path to chroot-side path:
+        # - <PAYLOAD_DIR>/modules/<name>  → /tmp/pibuild/payload/modules/<name>
+        # - <MODULES_REPO_DIR>/<name>     → /tmp/pibuild/modules/<name>
+        # Use [[ == ]] string-prefix matching rather than a `case` glob:
+        # PAYLOAD_DIR could in principle contain glob metachars, and
+        # case-glob would match unpredictably. [[ "$host_dir" == "$PAYLOAD_DIR"/* ]]
+        # is a literal prefix test.
+        if   [[ "$host_dir" == "$PAYLOAD_DIR"/* ]]; then
+            MODULE_CHROOT_DIRS+=("/tmp/pibuild/payload/${host_dir#"$PAYLOAD_DIR"/}")
+        elif [[ "$host_dir" == "$MODULES_REPO_DIR"/* ]]; then
+            MODULE_CHROOT_DIRS+=("/tmp/pibuild/modules/${host_dir#"$MODULES_REPO_DIR"/}")
+        else
+            echo "internal error: unexpected module path $host_dir" >&2
+            exit 4
+        fi
+    done
+    ok "modules: ${MODULE_NAMES[*]}"
+
+    # Validate schemas, collect resolved defaults into SCHEMA_DEFAULTS.
+    say "validating schemas"
+    SCHEMA_DEFAULTS="$(validate_schemas "${MODULE_HOST_DIRS[@]}")"
+    # SCHEMA_DEFAULTS is a series of `export NAME=VALUE` lines. Source
+    # them so the values are visible to the docker `-e` forwarding below
+    # and so the `--env-regex` loop sees them too.
+    if [[ -n "$SCHEMA_DEFAULTS" ]]; then
+        # shellcheck disable=SC1091
+        eval "$SCHEMA_DEFAULTS"
+    fi
+    ok "schemas validated"
+
+    # Emit the synthetic runner.
+    mkdir -p "$HERE/build-scratch"
+    RUN_MODULES_SH="$HERE/build-scratch/run-modules.sh"
+    emit_runner "$RUN_MODULES_SH" "${MODULE_CHROOT_DIRS[@]}"
+    chmod +x "$RUN_MODULES_SH"
+    ok "runner: $RUN_MODULES_SH"
+fi
+
 # ----- base image: fetch + verify -----------------------------------------
 
 if [[ "$BASE" =~ ^https?:// ]]; then
@@ -175,67 +237,6 @@ docker build -t "$IMAGE_TAG" "$HERE/pipeline" > /tmp/pibuild-docker-build.log 2>
     cat /tmp/pibuild-docker-build.log; exit 4;
 }
 ok "container: $IMAGE_TAG"
-
-# Initialize variables for new-contract dispatch (may be populated later).
-RUN_MODULES_SH=""
-MODULES_REPO_DIR="$HERE/modules"
-
-# New-contract: parse modules.list, validate schemas host-side, emit a
-# synthetic runner. Anything that aborts here aborts BEFORE docker starts.
-if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
-    # shellcheck source=../lib/modules-loader.sh
-    source "$HERE/lib/modules-loader.sh"
-
-    say "parsing modules.list"
-    MODULE_NAMES=()
-    while IFS= read -r name; do
-        [[ -n "$name" ]] && MODULE_NAMES+=("$name")
-    done < <(parse_modules_list "$PAYLOAD_DIR/modules.list")
-    [[ ${#MODULE_NAMES[@]} -gt 0 ]] || { echo "error: modules.list is empty after stripping comments" >&2; exit 2; }
-
-    # Resolve each name to its host-side module dir.
-    MODULE_HOST_DIRS=()
-    MODULE_CHROOT_DIRS=()
-    for name in "${MODULE_NAMES[@]}"; do
-        host_dir="$(resolve_module "$name" "$PAYLOAD_DIR" "$MODULES_REPO_DIR")"
-        MODULE_HOST_DIRS+=("$host_dir")
-        # Translate host-side path to chroot-side path:
-        # - <PAYLOAD_DIR>/modules/<name>  → /tmp/pibuild/payload/modules/<name>
-        # - <MODULES_REPO_DIR>/<name>     → /tmp/pibuild/modules/<name>
-        # Use [[ == ]] string-prefix matching rather than a `case` glob:
-        # PAYLOAD_DIR could in principle contain glob metachars, and
-        # case-glob would match unpredictably. [[ "$host_dir" == "$PAYLOAD_DIR"/* ]]
-        # is a literal prefix test.
-        if   [[ "$host_dir" == "$PAYLOAD_DIR"/* ]]; then
-            MODULE_CHROOT_DIRS+=("/tmp/pibuild/payload/${host_dir#"$PAYLOAD_DIR"/}")
-        elif [[ "$host_dir" == "$MODULES_REPO_DIR"/* ]]; then
-            MODULE_CHROOT_DIRS+=("/tmp/pibuild/modules/${host_dir#"$MODULES_REPO_DIR"/}")
-        else
-            echo "internal error: unexpected module path $host_dir" >&2
-            exit 4
-        fi
-    done
-    ok "modules: ${MODULE_NAMES[*]}"
-
-    # Validate schemas, collect resolved defaults into SCHEMA_DEFAULTS.
-    say "validating schemas"
-    SCHEMA_DEFAULTS="$(validate_schemas "${MODULE_HOST_DIRS[@]}")"
-    # SCHEMA_DEFAULTS is a series of `export NAME=VALUE` lines. Source
-    # them so the values are visible to the docker `-e` forwarding below
-    # and so the `--env-regex` loop sees them too.
-    if [[ -n "$SCHEMA_DEFAULTS" ]]; then
-        # shellcheck disable=SC1091
-        eval "$SCHEMA_DEFAULTS"
-    fi
-    ok "schemas validated"
-
-    # Emit the synthetic runner.
-    mkdir -p "$HERE/build-scratch"
-    RUN_MODULES_SH="$HERE/build-scratch/run-modules.sh"
-    emit_runner "$RUN_MODULES_SH" "${MODULE_CHROOT_DIRS[@]}"
-    chmod +x "$RUN_MODULES_SH"
-    ok "runner: $RUN_MODULES_SH"
-fi
 
 # ----- assemble docker args -----------------------------------------------
 
