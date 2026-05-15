@@ -51,11 +51,16 @@ install_tailscale() {
 
     install -d -m 755 /usr/share/keyrings /etc/apt/sources.list.d
     curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.noarmor.gpg" \
-        -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+        -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
+        || { echo "install_tailscale: failed to fetch Tailscale GPG keyring" >&2; return 3; }
     curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.tailscale-keyring.list" \
-        -o /etc/apt/sources.list.d/tailscale.list
+        -o /etc/apt/sources.list.d/tailscale.list \
+        || { echo "install_tailscale: failed to fetch Tailscale apt sources list" >&2; return 3; }
 
-    # 2) Install tailscale. apt_install handles the one-time `apt update`.
+    # 2) Update apt cache for the new repo, then install tailscale.
+    # (apt_install only runs apt-get update once per build, so we must do it
+    # explicitly here after adding a new repo source.)
+    apt-get update -qq
     apt_install tailscale
 
     # 3) Render the firstboot service from the template. Auth keys are
