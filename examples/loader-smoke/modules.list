@@ -1,0 +1,5 @@
+# loader-smoke payload — exercises Phase-1 loader without depending on
+# the core module. One trivial payload-local module, comments + blanks
+# stripped, run-order preserved.
+
+smoke
