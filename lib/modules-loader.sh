@@ -149,10 +149,9 @@ validate_schemas() {
         }
     done
 
-    # Check if any errors were collected.
+    # Check if any errors were collected (from require failures).
     if [[ -s "$err_file" ]]; then
         cat "$err_file" >&2
-        return 2
     fi
 
     # Check if any schema exited non-zero (schema syntax error, readonly violation, etc.)
@@ -161,6 +160,10 @@ validate_schemas() {
         for module_name in "${failed_modules[@]}"; do
             echo "  module $module_name" >&2
         done
+    fi
+
+    # If either failure type occurred, abort with error exit code.
+    if [[ -s "$err_file" ]] || (( ${#failed_modules[@]} > 0 )); then
         return 2
     fi
 
