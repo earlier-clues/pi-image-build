@@ -108,6 +108,9 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 LIB_DIR="$HERE/lib"
 mkdir -p "$CACHE"
 
+say() { printf "\033[1;36m==>\033[0m %s\n" "$*"; }
+ok()  { printf "  \033[1;32m✓\033[0m %s\n" "$*"; }
+
 # Env-file resolution (new contract only; legacy payloads have always
 # expected the caller to set env vars before invoking build-image.sh).
 if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
@@ -124,8 +127,6 @@ if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
     fi
 fi
 
-say() { printf "\033[1;36m==>\033[0m %s\n" "$*"; }
-ok()  { printf "  \033[1;32m✓\033[0m %s\n" "$*"; }
 sha256() { command -v sha256sum >/dev/null && sha256sum "$@" || shasum -a 256 "$@"; }
 
 # ----- base image: fetch + verify -----------------------------------------
@@ -174,6 +175,10 @@ docker build -t "$IMAGE_TAG" "$HERE/pipeline" > /tmp/pibuild-docker-build.log 2>
     cat /tmp/pibuild-docker-build.log; exit 4;
 }
 ok "container: $IMAGE_TAG"
+
+# Initialize variables for new-contract dispatch (may be populated later).
+RUN_MODULES_SH=""
+MODULES_REPO_DIR="$HERE/modules"
 
 # ----- assemble docker args -----------------------------------------------
 
@@ -263,15 +268,16 @@ fi
 
 # New-contract: parse modules.list, validate schemas host-side, emit a
 # synthetic runner. Anything that aborts here aborts BEFORE docker starts.
-RUN_MODULES_SH=""
-MODULES_REPO_DIR="$HERE/modules"
 if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
     # shellcheck source=../lib/modules-loader.sh
     source "$HERE/lib/modules-loader.sh"
 
     say "parsing modules.list"
-    mapfile -t MODULE_NAMES < <(parse_modules_list "$PAYLOAD_DIR/modules.list")
-    (( ${#MODULE_NAMES[@]} > 0 )) || { echo "error: modules.list is empty after stripping comments" >&2; exit 2; }
+    MODULE_NAMES=()
+    while IFS= read -r name; do
+        [[ -n "$name" ]] && MODULE_NAMES+=("$name")
+    done < <(parse_modules_list "$PAYLOAD_DIR/modules.list")
+    [[ ${#MODULE_NAMES[@]} -gt 0 ]] || { echo "error: modules.list is empty after stripping comments" >&2; exit 2; }
 
     # Resolve each name to its host-side module dir.
     MODULE_HOST_DIRS=()
