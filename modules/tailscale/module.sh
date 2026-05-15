@@ -6,8 +6,7 @@ source "$LIB_DIR/tailscale.sh"
 # parsed positionally below. Recognized flags: --ssh, --accept-routes.
 _ts_args=()
 [[ -n "${TAILSCALE_HOSTNAME:-}" ]] && _ts_args+=(--hostname "$TAILSCALE_HOSTNAME")
-# shellcheck disable=SC2206  # word-split is desired here
-_extra_flags=( ${TAILSCALE_FLAGS:-} )
+read -ra _extra_flags <<<"${TAILSCALE_FLAGS:-}"
 for f in "${_extra_flags[@]}"; do
     case "$f" in
         --ssh|--accept-routes) _ts_args+=("$f") ;;
@@ -20,4 +19,4 @@ for f in "${_extra_flags[@]}"; do
 done
 
 install_tailscale "$TAILSCALE_AUTHKEY" "${_ts_args[@]}"
-unset _ts_args _extra_flags
+unset _ts_args _extra_flags f
