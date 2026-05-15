@@ -194,9 +194,10 @@ for v in HOSTNAME TIMEZONE KEYMAP PI_USER ENCRYPTED_PASSWORD SSH_PUBKEY; do
     [[ -n "${!v:-}" ]] && CHROOT_ENV+=("$v=${!v}")
 done
 # New-contract schema variables — forwarded as a space-separated list.
+# All SCHEMA_VARS are included, even if empty (empty strings are valid defaults).
 if [[ -n "${SCHEMA_VARS:-}" ]]; then
     for v in $SCHEMA_VARS; do
-        [[ -n "${!v:-}" ]] && CHROOT_ENV+=("$v=${!v}")
+        CHROOT_ENV+=("$v=${!v:-}")
     done
 fi
 # Caller-supplied passthrough: a newline-separated NAME=VALUE list.
