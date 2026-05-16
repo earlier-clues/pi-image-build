@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Filesystem diff between two pi-image-build output images. Mounts both
+# under kpartx, runs `diff -rq` on the rootfs, filters known-noise paths.
+# Use as a migration gate: pre-change image vs post-change image should
+# diff clean (exit 0).
+#
+# Runs the pipeline container with --privileged so kpartx works on
+# macOS hosts where the kernel doesn't expose loop devices.
+
+set -euo pipefail
+
+usage() {
+    sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+SHOW_IGNORED=0
+EXTRA_IGNORES=()
+OLD=""
+NEW=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --show-ignored) SHOW_IGNORED=1; shift ;;
+        --ignore)       EXTRA_IGNORES+=("$2"); shift 2 ;;
+        -h|--help)      usage; exit 0 ;;
+        -*)             echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
+        *)
+            if   [[ -z "$OLD" ]]; then OLD="$1"
+            elif [[ -z "$NEW" ]]; then NEW="$1"
+            else echo "unexpected arg: $1" >&2; usage >&2; exit 2
+            fi
+            shift ;;
+    esac
+done
+
+[[ -n "$OLD" && -n "$NEW" ]] || { echo "error: OLD and NEW required" >&2; usage >&2; exit 2; }
+[[ -f "$OLD" ]] || { echo "error: not a file: $OLD" >&2; exit 2; }
+[[ -f "$NEW" ]] || { echo "error: not a file: $NEW" >&2; exit 2; }
+
+OLD="$(cd "$(dirname "$OLD")" && pwd)/$(basename "$OLD")"
+NEW="$(cd "$(dirname "$NEW")" && pwd)/$(basename "$NEW")"
+
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+IMAGE_TAG="pi-image-build:latest"
+
+# Build the pipeline container if it isn't already built.
+if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+    docker build -t "$IMAGE_TAG" "$HERE/pipeline" > /tmp/pibuild-docker-build.log 2>&1 \
+        || { cat /tmp/pibuild-docker-build.log; exit 4; }
+fi
+
+# Hardcoded ignore list. Each entry is an extended regex matched against
+# `diff -rq` output lines. These cover the known sources of build-time
+# entropy:
+#
+#   - machine-id (reset to empty by core; mtime may differ)
+#   - apt caches & dpkg internal state (mtime + install-time vary)
+#   - var/log (timestamps in log files)
+#   - systemd random-seed (generated at first boot, may pre-exist)
+#   - ssh host keys (ssh-keygen -A produces fresh keys per build)
+#   - NetworkManager connection UUIDs (uuidgen per build)
+#   - tmp / run / proc / sys (runtime trees, empty in offline images)
+IGNORES=(
+    'machine-id'
+    '/var/cache/apt/'
+    '/var/lib/apt/'
+    '/var/lib/dpkg/'
+    '/var/log/'
+    '/var/lib/systemd/random-seed'
+    '/etc/ssh/ssh_host_'
+    '/etc/ssh/moduli'
+    '/etc/NetworkManager/system-connections/'
+    '/var/lib/NetworkManager/secret_key'
+    '/var/lib/NetworkManager/seen-bssids'
+    '/var/lib/NetworkManager/timestamps'
+    '/var/lib/dbus/machine-id'
+    '^Common subdirectories'
+    '/tmp/'
+    '/run/'
+)
+IGNORES+=(${EXTRA_IGNORES[@]+"${EXTRA_IGNORES[@]}"})
+
+# Build the grep filter pattern. Each entry becomes one alternative.
+# `printf '%s\n' "${IGNORES[@]}" | paste -sd '|' -` is the portable form.
+FILTER_PATTERN="$(printf '%s\n' "${IGNORES[@]}" | paste -sd '|' -)"
+
+# Inside the container, do the mounting and diffing.
+docker run --rm --privileged \
+    -v "$OLD":/in/old.img.compressed:ro \
+    -v "$NEW":/in/new.img.compressed:ro \
+    -e "FILTER_PATTERN=$FILTER_PATTERN" \
+    -e "SHOW_IGNORED=$SHOW_IGNORED" \
+    "$IMAGE_TAG" \
+    bash <<'BASH'
+set -euo pipefail
+
+decompress() {
+    local in="$1" out="$2"
+    case "$(file -b --mime-type "$in")" in
+        application/x-xz)         xz -dc "$in" > "$out" ;;
+        application/gzip)         gzip -dc "$in" > "$out" ;;
+        application/octet-stream) cp "$in" "$out" ;;
+        *)
+            echo "unknown image compression for $in: $(file -b "$in")" >&2
+            exit 2 ;;
+    esac
+}
+
+mount_image() {
+    local img="$1" mnt="$2"
+    local loop; loop="$(losetup --find --show "$img")"
+    echo "$loop" >> /tmp/loops
+    kpartx -av "$loop" >/dev/null
+    local base; base="$(basename "$loop")"
+    for _ in $(seq 1 20); do
+        [[ -b "/dev/mapper/${base}p2" ]] && break
+        sleep 0.2
+    done
+    [[ -b "/dev/mapper/${base}p2" ]] || { echo "p2 missing on $loop"; exit 3; }
+    mkdir -p "$mnt"
+    mount -o ro "/dev/mapper/${base}p2" "$mnt"
+}
+
+cleanup() {
+    local rc=$?
+    umount /mnt/old 2>/dev/null || true
+    umount /mnt/new 2>/dev/null || true
+    if [[ -f /tmp/loops ]]; then
+        while IFS= read -r L; do
+            kpartx -dv "$L" >/dev/null 2>&1 || true
+            losetup -d "$L" >/dev/null 2>&1 || true
+        done < /tmp/loops
+    fi
+    exit "$rc"
+}
+trap cleanup EXIT
+
+: > /tmp/loops
+
+decompress /in/old.img.compressed /tmp/old.img
+decompress /in/new.img.compressed /tmp/new.img
+
+mount_image /tmp/old.img /mnt/old
+mount_image /tmp/new.img /mnt/new
+
+# diff -rq: report differing files by name only (no content diff).
+# Returns 0 if equal, 1 if differences found.
+diff -rq /mnt/old /mnt/new > /tmp/diff.out 2>&1 || true
+
+if (( SHOW_IGNORED )); then
+    echo "==== full diff output (before filter) ===="
+    cat /tmp/diff.out
+    echo "==== end full diff ===="
+fi
+
+# Apply ignore filter. Lines NOT matching any ignore pattern survive.
+if [[ -n "$FILTER_PATTERN" ]]; then
+    grep -E -v "$FILTER_PATTERN" /tmp/diff.out > /tmp/diff.filtered || true
+else
+    cp /tmp/diff.out /tmp/diff.filtered
+fi
+
+if [[ -s /tmp/diff.filtered ]]; then
+    echo "==== surviving diffs (after ignore list) ===="
+    cat /tmp/diff.filtered
+    echo "==== END FAIL ===="
+    exit 1
+fi
+
+echo "PASS: no surviving differences."
+BASH
