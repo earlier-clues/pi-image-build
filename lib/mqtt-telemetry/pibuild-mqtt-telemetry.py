@@ -291,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
 
     connected_event = threading.Event()
     def on_connect(client_, userdata, flags, reason_code, properties=None):
+        if int(reason_code) != 0:
+            log.warning("connect rejected: reason_code=%s", reason_code)
         connected_event.set()
     client.on_connect = on_connect
 
@@ -300,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not connected_event.wait(timeout=10.0):
         log.error("connect timeout")
+        client.loop_stop()
         return 1
 
     client.publish(f"{base}/online", "true", qos=0, retain=True)
