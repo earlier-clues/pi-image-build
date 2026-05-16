@@ -23,8 +23,5 @@ case "$MQTT_BROKER_AUTH" in
         ;;
 esac
 
-# Add TLS cert if specified
-[[ -n "${MQTT_BROKER_CERT_PATH:-}" ]] && _mb_args+=( --cert-path "$MQTT_BROKER_CERT_PATH" )
-
 install_mqtt_broker "${_mb_args[@]}"
 unset _mb_args

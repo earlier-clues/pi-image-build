@@ -4,9 +4,6 @@
 listener @@PORT@@
 @@AUTH_BLOCK@@
 
-# TLS configuration (if enabled)
-@@TLS_BLOCK@@
-
 # Persistence
 persistence true
 persistence_location /var/lib/mosquitto/
