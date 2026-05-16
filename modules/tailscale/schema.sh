@@ -13,6 +13,14 @@ require TAILSCALE_AUTHKEY
 # intent.
 optional TAILSCALE_HOSTNAME default=$HOSTNAME
 
-# Space-separated flag list. Default --ssh enables Tailscale SSH so the
-# Pi is reachable from any tailnet device without managing local keys.
-optional TAILSCALE_FLAGS default=--ssh
+# Space-separated flag list. Default empty: tailscaled does not intercept
+# port 22, so the Pi answers SSH via OpenSSH using the pubkey installed
+# by `core` (`SSH_PUBKEY` → `/home/$PI_USER/.ssh/authorized_keys`).
+#
+# Set TAILSCALE_FLAGS=--ssh to opt in to Tailscale SSH (identity-based
+# auth via the tailnet, no pubkey copies needed) — also requires an
+# `ssh:` block in your tailnet ACL or every connection gets denied with
+# 'tailnet policy does not permit you to SSH to this node'.
+#
+# Recognized flags: --ssh, --accept-routes.
+optional TAILSCALE_FLAGS default=
