@@ -18,6 +18,10 @@ LIB_API_VERSION=1
 #       --log-name mpv-loop-boot.log \
 #       --units "mpv-loop.service mpv-loop-assign-hostname.service" \
 #       --journal-units "mpv-loop.service"
+sed_escape() {
+    printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
+}
+
 install_boot_report() {
     local log_name="boot.log"
     local units=""
@@ -45,12 +49,17 @@ install_boot_report() {
     local dst_timer="/etc/systemd/system/pibuild-boot-report.timer"
 
     # The script is rendered from the template via sed substitution. The
-    # service + timer are static.
+    # service + timer are static. Escape replacement values to prevent
+    # sed metacharacters (&, |, \) from being interpreted.
     install -D -m 755 "$src_script" "$dst_script"
+    local log_name_esc units_esc journal_units_esc
+    log_name_esc=$(sed_escape "$log_name")
+    units_esc=$(sed_escape "$units")
+    journal_units_esc=$(sed_escape "$journal_units")
     sed -i \
-        -e "s|@@LOG_NAME@@|${log_name}|g" \
-        -e "s|@@UNITS@@|${units}|g" \
-        -e "s|@@JOURNAL_UNITS@@|${journal_units}|g" \
+        -e "s|@@LOG_NAME@@|${log_name_esc}|g" \
+        -e "s|@@UNITS@@|${units_esc}|g" \
+        -e "s|@@JOURNAL_UNITS@@|${journal_units_esc}|g" \
         "$dst_script"
 
     install -D -m 644 "$src_service" "$dst_service"
