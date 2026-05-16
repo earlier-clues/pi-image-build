@@ -36,7 +36,6 @@ install_mqtt_broker() {
                 [[ -n "${2:-}" ]] || { echo "install_mqtt_broker: --passwd-file needs an argument" >&2; return 2; }
                 auth_mode="passwd"
                 passwd_file="$2"; shift 2 ;;
-
             *)
                 echo "install_mqtt_broker: unknown flag '$1'" >&2; return 2 ;;
         esac
@@ -52,13 +51,11 @@ install_mqtt_broker() {
     apt_install mosquitto mosquitto-clients
 
     # Render mosquitto config from template via sed substitution.
-    # Build the auth block and TLS block based on configuration.
+    # Build the auth block based on configuration.
     local auth_block="allow_anonymous true"
     if [[ "$auth_mode" == "passwd" ]]; then
         auth_block="password_file /etc/mosquitto/passwd"
     fi
-
-
 
     # Install the config template and apply substitutions
     local src="$LIB_DIR/mqtt-broker/mosquitto-pibuild.conf.template"
