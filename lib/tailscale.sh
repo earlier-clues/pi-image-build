@@ -18,6 +18,10 @@ LIB_API_VERSION=1
 # Examples:
 #   install_tailscale "$TS_AUTHKEY"
 #   install_tailscale "$TS_AUTHKEY" --hostname "$HOSTNAME" --ssh
+sed_escape() {
+    printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
+}
+
 install_tailscale() {
     local authkey="$1"; shift
     local hostname=""
@@ -63,15 +67,19 @@ install_tailscale() {
     apt-get update -qq
     apt_install tailscale
 
-    # 3) Render the firstboot service from the template. Auth keys are
-    # base64-ish (alphanumeric + hyphens); safe under `sed` with `|` delim.
+    # 3) Render the firstboot service from the template. Escape all
+    # replacement values to prevent sed metacharacters from being interpreted.
     local src="$LIB_DIR/tailscale/tailscale-firstboot.service"
     local dst="/etc/systemd/system/tailscale-firstboot.service"
     install -D -m 644 "$src" "$dst"
+    local authkey_esc hostname_esc flags_esc
+    authkey_esc=$(sed_escape "$authkey")
+    hostname_esc=$(sed_escape "$hostname")
+    flags_esc=$(sed_escape "$flags")
     sed -i \
-        -e "s|@@AUTHKEY@@|${authkey}|g" \
-        -e "s|@@HOSTNAME@@|${hostname}|g" \
-        -e "s|@@FLAGS@@|${flags}|g" \
+        -e "s|@@AUTHKEY@@|${authkey_esc}|g" \
+        -e "s|@@HOSTNAME@@|${hostname_esc}|g" \
+        -e "s|@@FLAGS@@|${flags_esc}|g" \
         "$dst"
 
     # 4) Enable. The unit's ExecStartPost disables it after a successful
