@@ -1,9 +1,11 @@
 # home-telemetry — Pi on home wifi, joined to tailnet, publishing health to MQTT.
 # Demonstrates the full remote-diagnostic stack: core baseline + tailscale
-# reachability + mqtt-telemetry health publishing. No app payload (no mpv,
-# no video) — this is the minimum useful "deployed Pi" shape.
+# reachability + boot-report (offline diagnostic dump) + mqtt-telemetry
+# (live health publishing). No app payload (no mpv, no video) — this is
+# the minimum useful "deployed Pi" shape.
 
 core
 tailscale
 home-wifi
+boot-report
 mqtt-telemetry
