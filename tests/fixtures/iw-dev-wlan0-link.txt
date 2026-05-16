@@ -1,0 +1,7 @@
+Connected to aa:bb:cc:dd:ee:ff (on wlan0)
+	SSID: aether
+	freq: 2412
+	RX: 1234 bytes (12 packets)
+	TX: 5678 bytes (34 packets)
+	signal: -57 dBm
+	tx bitrate: 65.0 MBit/s MCS 7

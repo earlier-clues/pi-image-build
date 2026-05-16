@@ -8,5 +8,8 @@ examples/*/content/
 examples/*/.env
 examples/*/*.pub
 
+# test virtual environments
+tests/.venv/
+
 # synthetic module runner — regenerated per build
 build-scratch/
