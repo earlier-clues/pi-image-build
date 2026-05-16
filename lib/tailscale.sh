@@ -33,9 +33,10 @@ install_tailscale() {
 
     [[ -n "$authkey" ]] || { echo "install_tailscale: AUTHKEY required" >&2; return 2; }
 
-    # curl + ca-certificates are required for the apt-repo bootstrap below.
-    # Pi OS Lite bookworm ships both, but make the dependency explicit so a
-    # future minified base image doesn't break this silently.
+    # install.sh itself uses curl to fetch the keyring + sources.list, and we
+    # use curl to fetch install.sh. Pi OS Lite bookworm ships both but make the
+    # dependency explicit so a future minified base image doesn't break this
+    # silently.
     apt_install curl ca-certificates
 
     while [[ $# -gt 0 ]]; do
