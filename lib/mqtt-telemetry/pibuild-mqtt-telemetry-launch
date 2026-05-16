@@ -1,0 +1,8 @@
+#!/bin/bash
+# Launch the pi-image-build MQTT telemetry daemon with env-derived args.
+set -euo pipefail
+
+ARGS=( --role "$MQTT_ROLE" --broker "$MQTT_BROKER" )
+[[ -n "${MQTT_CERT:-}" ]] && ARGS+=( --cert "$MQTT_CERT" )
+
+exec /usr/local/bin/pibuild-mqtt-telemetry "${ARGS[@]}"

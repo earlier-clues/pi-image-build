@@ -1,0 +1,18 @@
+[Unit]
+Description=pi-image-build MQTT telemetry daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=MQTT_ROLE=@@ROLE@@
+Environment=MQTT_BROKER=@@BROKER@@
+Environment=MQTT_CERT=@@CERT@@
+ExecStart=/usr/local/bin/pibuild-mqtt-telemetry-launch
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
