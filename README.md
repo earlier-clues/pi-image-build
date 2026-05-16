@@ -106,6 +106,7 @@ Available repo-level modules:
 | `core` | `HOSTNAME`, `TIMEZONE`, `PI_USER`, `ENCRYPTED_PASSWORD`, `SSH_PUBKEY` | `KEYMAP=us`, `AP_COUNTRY=US` | Baseline OS config: hostname, locale, user (sudoers-nopasswd), ssh, wifi-baseline, machine-id reset. |
 | `tailscale` | `TAILSCALE_AUTHKEY` | `TAILSCALE_HOSTNAME=$HOSTNAME`, `TAILSCALE_FLAGS=--ssh` | Install Tailscale, enroll on first boot, self-disable. |
 | `boot-report` | — | `BOOT_REPORT_LOG_NAME=boot.log`, `BOOT_REPORT_UNITS`, `BOOT_REPORT_JOURNAL_UNITS` | Drop a diagnostic dump to `/boot/firmware/<log-name>` at T+90s and T+180s. |
+| `mqtt-broker` | — | `MQTT_BROKER_PORT=1883`, `MQTT_BROKER_AUTH=anonymous`, `MQTT_BROKER_PASSWD_PATH`, `MQTT_BROKER_CERT_PATH` | Install Mosquitto MQTT broker as a systemd service. Anonymous default; optional passwd-file or TLS. |
 | `mqtt-telemetry` | `MQTT_BROKER`, `MQTT_ROLE` | `MQTT_CERT_PATH` | Publish per-Pi health/version/online to an MQTT broker on a 10s cadence with LWT. |
 
 ## Build a smoke-test image
