@@ -108,6 +108,7 @@ Available repo-level modules:
 | `boot-report` | — | `BOOT_REPORT_LOG_NAME=boot.log`, `BOOT_REPORT_UNITS`, `BOOT_REPORT_JOURNAL_UNITS` | Drop a diagnostic dump to `/boot/firmware/<log-name>` at T+90s and T+180s. |
 | `mqtt-broker` | — | `MQTT_BROKER_PORT=1883`, `MQTT_BROKER_AUTH=anonymous`, `MQTT_BROKER_PASSWD_PATH` | Install Mosquitto MQTT broker as a systemd service. Anonymous default; optional passwd-file auth. |
 | `mqtt-telemetry` | `MQTT_BROKER`, `MQTT_ROLE` | `MQTT_CERT_PATH` | Publish per-Pi health/version/online to an MQTT broker on a 10s cadence with LWT. |
+| `mqtt-dashboard` | — | `MQTT_DASHBOARD_BROKER=localhost:1883`, `MQTT_DASHBOARD_TOPIC=pi/#`, `MQTT_DASHBOARD_PORT=8080` | Tiny HTML status page for an mqtt-publishing fleet. Pair with `mqtt-broker` for a self-contained venue server. |
 
 ## Build a smoke-test image
 

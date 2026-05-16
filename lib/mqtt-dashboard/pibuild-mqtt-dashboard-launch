@@ -1,0 +1,8 @@
+#!/bin/bash
+# Launch the pi-image-build MQTT dashboard daemon with env-derived args.
+set -euo pipefail
+
+exec /usr/local/bin/pibuild-mqtt-dashboard \
+    --broker "$MQTT_DASHBOARD_BROKER" \
+    --topic  "$MQTT_DASHBOARD_TOPIC" \
+    --port   "$MQTT_DASHBOARD_PORT"

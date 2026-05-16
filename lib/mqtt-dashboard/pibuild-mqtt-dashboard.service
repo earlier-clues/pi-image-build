@@ -1,0 +1,18 @@
+[Unit]
+Description=pi-image-build MQTT dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=MQTT_DASHBOARD_BROKER=@@BROKER@@
+Environment=MQTT_DASHBOARD_TOPIC=@@TOPIC@@
+Environment=MQTT_DASHBOARD_PORT=@@PORT@@
+ExecStart=/usr/local/bin/pibuild-mqtt-dashboard-launch
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
