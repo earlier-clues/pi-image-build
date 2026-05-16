@@ -291,7 +291,11 @@ def main(argv: list[str] | None = None) -> int:
 
     connected_event = threading.Event()
     def on_connect(client_, userdata, flags, reason_code, properties=None):
-        if int(reason_code) != 0:
+        # paho-mqtt's MQTTv5 callbacks pass a ReasonCode object, which has
+        # no __int__. Use .value (always present on ReasonCode); fall back
+        # to the value itself for older paho versions that hand back ints.
+        rc = getattr(reason_code, "value", reason_code)
+        if int(rc) != 0:
             log.warning("connect rejected: reason_code=%s", reason_code)
         connected_event.set()
     client.on_connect = on_connect
