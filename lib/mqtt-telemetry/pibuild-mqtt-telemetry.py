@@ -12,6 +12,15 @@ Pure parser functions at module level are unit-testable without an MQTT
 broker or a Pi.
 """
 
+# pattern: Mixed (unavoidable)
+# Reason: single-file daemon installed at /usr/local/bin/pibuild-mqtt-telemetry.
+# Pure parsers (parse_*, collect_health caller-side) live above the
+# "----- I/O wrappers -----" banner and are exercised by tests/ without
+# any I/O. I/O wrappers and main() handle subprocess, file, socket, and
+# MQTT calls. Splitting into two files would complicate the install
+# target without testability benefit; tests already import only the
+# pure parsers in practice.
+
 from __future__ import annotations
 
 import argparse
@@ -22,6 +31,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -69,13 +79,21 @@ def parse_meminfo(meminfo_text: str) -> dict[str, int]:
 
 
 def parse_uptime(uptime_text: str) -> float:
-    """Parse /proc/uptime first field. Returns seconds (float)."""
-    return float(uptime_text.split()[0])
+    """Parse /proc/uptime first field. Returns seconds (float).
+    Raises ValueError on empty input."""
+    parts = uptime_text.split()
+    if not parts:
+        raise ValueError("empty uptime")
+    return float(parts[0])
 
 
 def parse_loadavg(loadavg_text: str) -> float:
-    """Parse /proc/loadavg first field. Returns 1m load as float."""
-    return float(loadavg_text.split()[0])
+    """Parse /proc/loadavg first field. Returns 1m load as float.
+    Raises ValueError on empty input."""
+    parts = loadavg_text.split()
+    if not parts:
+        raise ValueError("empty loadavg")
+    return float(parts[0])
 
 
 def parse_iw_link_rssi(iw_link_text: str) -> Optional[int]:
@@ -271,9 +289,18 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
+    connected_event = threading.Event()
+    def on_connect(client_, userdata, flags, reason_code, properties=None):
+        connected_event.set()
+    client.on_connect = on_connect
+
     log.info("connecting to %s:%d as %s", broker_host, broker_port, client_id)
     client.connect(broker_host, broker_port, keepalive=60)
     client.loop_start()
+
+    if not connected_event.wait(timeout=10.0):
+        log.error("connect timeout")
+        return 1
 
     client.publish(f"{base}/online", "true", qos=0, retain=True)
     client.publish(f"{base}/version", read_version_fingerprint(), qos=0, retain=True)
@@ -289,7 +316,8 @@ def main(argv: list[str] | None = None) -> int:
                     break
                 time.sleep(0.1)
     finally:
-        client.publish(f"{base}/online", "false", qos=0, retain=True)
+        if connected_event.is_set():
+            client.publish(f"{base}/online", "false", qos=0, retain=True)
         client.loop_stop()
         client.disconnect()
 
