@@ -131,9 +131,12 @@ OUTPUT_FORMAT="${OUTPUT_FORMAT:-gz}"
 # user happened to run this wrapper from.
 cd "$PIBUILD"
 
+# New-contract: build-image.sh auto-sources <payload>/.env, so AP_*/MPV_*
+# come in via the env-file path. We still forward the wrapper-derived
+# ENCRYPTED_PASSWORD and SSH_PUBKEY (computed above), plus the canonical
+# customization vars, via the bin/build-image.sh built-in forwarding.
 exec "$PIBUILD/bin/build-image.sh" \
     "$PAYLOAD_DIR" \
     --output-format "$OUTPUT_FORMAT" \
-    --env-regex 'AP_.*|MPV_.*' \
     --mount "video=$VIDEO_MOUNT" \
     ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
