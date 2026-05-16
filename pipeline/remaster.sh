@@ -59,7 +59,7 @@ umount_all() {
     # Unmount in reverse order. Bind-mounted payload/lib/mounts go first
     # because they're inside the rootfs.
     if [[ -d "$MNT/tmp/pibuild" ]]; then
-        for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib"; do
+        for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib" "$MNT/tmp/pibuild/modules"; do
             [[ -d "$sub" ]] && umount "$sub" 2>/dev/null || true
         done
     fi
@@ -144,16 +144,35 @@ if [[ -d /pibuild/mounts ]]; then
 fi
 ok "bound"
 
-[[ -f "$PIBUILD/payload/build.sh" ]] || {
-    echo "error: payload at $PAYLOAD_HOST has no build.sh" >&2
-    exit 2
-}
-# Don't chmod: the bind mount is read-only. Caller is responsible for the
-# executable bit on build.sh.
-[[ -x "$PIBUILD/payload/build.sh" ]] || {
-    echo "error: $PAYLOAD_HOST/build.sh is not executable (chmod +x it)" >&2
-    exit 2
-}
+# Repo-level modules (always present; payload-local modules live under
+# /pibuild/payload/modules/ and are accessed via the payload bind mount).
+if [[ -d /pibuild/modules ]]; then
+    mkdir -p "$PIBUILD/modules"
+    mount --bind /pibuild/modules "$PIBUILD/modules"
+fi
+
+# Synthetic runner emitted by the loader (new-contract builds only).
+if [[ -f /pibuild/run-modules.sh ]]; then
+    install -m 755 /pibuild/run-modules.sh "$PIBUILD/run-modules.sh"
+fi
+
+BUILD_SCRIPT_PATH="${BUILD_SCRIPT:-/tmp/pibuild/payload/build.sh}"
+
+if [[ -z "${BUILD_SCRIPT:-}" ]]; then
+    [[ -f "$PIBUILD/payload/build.sh" ]] || {
+        echo "error: payload at $PAYLOAD_HOST has no build.sh" >&2
+        exit 2
+    }
+    [[ -x "$PIBUILD/payload/build.sh" ]] || {
+        echo "error: $PAYLOAD_HOST/build.sh is not executable (chmod +x it)" >&2
+        exit 2
+    }
+else
+    [[ -f "$PIBUILD/run-modules.sh" ]] || {
+        echo "error: synthetic runner not found at \$PIBUILD/run-modules.sh (BUILD_SCRIPT=$BUILD_SCRIPT)" >&2
+        exit 2
+    }
+fi
 
 # ----- run payload's build.sh inside chroot -------------------------------
 
@@ -165,12 +184,22 @@ CHROOT_ENV=(
     "LIB_DIR=/tmp/pibuild/lib"
     "PAYLOAD_DIR=/tmp/pibuild/payload"
     "MOUNTS_DIR=/tmp/pibuild/mounts"
+    "MODULES_DIR=/tmp/pibuild/modules"
 )
 # Canonical customization vars — forwarded if present. lib/ functions know
 # what to do with them; payloads can also read them directly.
+# Forwarded when present in the new-contract case (harmless for legacy).
+[[ -n "${BUILD_SCRIPT:-}" ]] && CHROOT_ENV+=("BUILD_SCRIPT=${BUILD_SCRIPT}")
 for v in HOSTNAME TIMEZONE KEYMAP PI_USER ENCRYPTED_PASSWORD SSH_PUBKEY; do
     [[ -n "${!v:-}" ]] && CHROOT_ENV+=("$v=${!v}")
 done
+# New-contract schema variables — forwarded as a space-separated list.
+# All SCHEMA_VARS are included, even if empty (empty strings are valid defaults).
+if [[ -n "${SCHEMA_VARS:-}" ]]; then
+    for v in $SCHEMA_VARS; do
+        CHROOT_ENV+=("$v=${!v:-}")
+    done
+fi
 # Caller-supplied passthrough: a newline-separated NAME=VALUE list.
 if [[ -n "${PASSTHROUGH:-}" ]]; then
     while IFS= read -r kv; do
@@ -180,14 +209,14 @@ fi
 
 say "running payload build.sh"
 chroot "$MNT" env -i "${CHROOT_ENV[@]}" \
-    /tmp/pibuild/payload/build.sh
+    "$BUILD_SCRIPT_PATH"
 ok "payload customization done"
 
 # ----- clean up build state inside image ----------------------------------
 # Unmount bind mounts before removing the dirs, otherwise rm follows into
 # the source trees on the container.
 
-for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib"; do
+for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib" "$MNT/tmp/pibuild/modules"; do
     [[ -d "$sub" ]] && umount "$sub" 2>/dev/null || true
 done
 rm -rf "$MNT/tmp/pibuild"

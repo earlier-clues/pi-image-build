@@ -1,0 +1,16 @@
+[Unit]
+Description=Tailscale first-boot enrollment (oneshot, self-disables on success)
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+ConditionPathExists=!/var/lib/tailscale/firstboot-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=300
+ExecStart=/usr/bin/tailscale up --auth-key=@@AUTHKEY@@ --hostname=@@HOSTNAME@@ @@FLAGS@@
+ExecStartPost=/bin/sh -c 'install -d /var/lib/tailscale && touch /var/lib/tailscale/firstboot-done && /usr/bin/systemctl disable tailscale-firstboot.service'
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

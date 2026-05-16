@@ -1,0 +1,7 @@
+[Unit]
+Description=pi-image-build boot diagnostics — dump radio/NM/journal state to /boot/firmware
+
+[Service]
+Type=oneshot
+TimeoutStartSec=600
+ExecStart=/usr/local/bin/pibuild-boot-report

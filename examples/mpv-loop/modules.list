@@ -1,0 +1,6 @@
+# mpv-loop — Pi that boots, joins wifi, and plays a video on infinite loop.
+# core does the baseline OS config; the payload-local mpv-loop module does
+# the mpv install, KMS config, video baking, and the assign-hostname unit.
+
+core
+mpv-loop

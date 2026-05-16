@@ -1,0 +1,14 @@
+# Mosquitto MQTT broker configuration for pi-image-build.
+# Rendered at image build time; placeholders substituted via sed.
+
+listener @@PORT@@
+@@AUTH_BLOCK@@
+
+# Persistence
+persistence true
+persistence_location /var/lib/mosquitto/
+
+# Logging
+log_dest syslog
+log_type error
+log_type warning

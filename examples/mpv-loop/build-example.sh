@@ -16,10 +16,10 @@
 # verbatim to bin/build-image.sh.
 #
 # .env keys:
-#   required:  AP_SSID  AP_PSK  AP_COUNTRY  PI_PASSWORD  SSH_PUBKEY_FILE
+#   required:  PI_PASSWORD  SSH_PUBKEY_FILE
 #   one of:    VIDEO (path)        — or pass --video on the CLI
 #   optional:  HOSTNAME  TIMEZONE  KEYMAP  PI_USER  MPV_AUDIO_OUT
-#              OUTPUT_FORMAT (xz|gz, default xz)
+#              AP_SSID  AP_PSK  AP_COUNTRY  OUTPUT_FORMAT (xz|gz, default xz)
 
 set -euo pipefail
 
@@ -68,9 +68,6 @@ unset _video_cli
 
 # ----- required + computed env vars --------------------------------------
 
-: "${AP_SSID:?AP_SSID required in $CONFIG_FILE}"
-: "${AP_PSK:?AP_PSK required in $CONFIG_FILE}"
-: "${AP_COUNTRY:?AP_COUNTRY required in $CONFIG_FILE}"
 : "${PI_PASSWORD:?PI_PASSWORD required in $CONFIG_FILE}"
 : "${SSH_PUBKEY_FILE:?SSH_PUBKEY_FILE required in $CONFIG_FILE}"
 
@@ -131,9 +128,12 @@ OUTPUT_FORMAT="${OUTPUT_FORMAT:-gz}"
 # user happened to run this wrapper from.
 cd "$PIBUILD"
 
+# New-contract: build-image.sh auto-sources <payload>/.env, so AP_*/MPV_*
+# come in via the env-file path. We still forward the wrapper-derived
+# ENCRYPTED_PASSWORD and SSH_PUBKEY (computed above), plus the canonical
+# customization vars, via the bin/build-image.sh built-in forwarding.
 exec "$PIBUILD/bin/build-image.sh" \
     "$PAYLOAD_DIR" \
     --output-format "$OUTPUT_FORMAT" \
-    --env-regex 'AP_.*|MPV_.*' \
     --mount "video=$VIDEO_MOUNT" \
     ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
