@@ -11,5 +11,10 @@ examples/*/*.pub
 # test virtual environments
 tests/.venv/
 
+# Python cache files
+__pycache__/
+*.pyc
+.pytest_cache/
+
 # synthetic module runner — regenerated per build
 build-scratch/
