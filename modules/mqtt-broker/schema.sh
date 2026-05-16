@@ -11,9 +11,9 @@ optional MQTT_BROKER_AUTH default=anonymous
 # Path to mosquitto password file (must exist at build time when
 # MQTT_BROKER_AUTH=passwd). If specified, will be copied to the rootfs
 # at /etc/mosquitto/passwd with mode 0600.
+# NOTE: This path is interpreted inside the chroot. See
+# modules/mqtt-broker/README.md "Providing a password file" for the two
+# standard patterns (payload dir or --mount).
 optional MQTT_BROKER_PASSWD_PATH default=
 
-# Path to TLS CA certificate (PEM format). If specified, TLS is enabled
-# for the listener. The cert must be present in the chroot at build time
-# and on the Pi at runtime; this module only configures the broker to use it.
-optional MQTT_BROKER_CERT_PATH default=
+# TLS is not currently supported. Future enhancement; see modules/mqtt-broker/README.md.
