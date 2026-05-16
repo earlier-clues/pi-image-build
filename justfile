@@ -27,9 +27,10 @@ qemu-test image:
 test:
     python3 -m pytest tests/ -v
 
-# --- dev-host mqtt broker -------------------------------------------------
-# Local mosquitto on :1883 for testing the mqtt-telemetry module against
-# your dev machine. Anonymous, plaintext. Not part of the build pipeline.
+# --- dev-host mqtt broker + dashboard -------------------------------------
+# Local mosquitto on :1883 + a dashboard process for poking at the
+# mqtt-telemetry and mqtt-dashboard modules without flashing hardware.
+# Anonymous, plaintext. Not part of the build pipeline.
 
 # Start a local mosquitto broker.
 broker-up:
@@ -52,3 +53,12 @@ broker-logs:
 broker-down:
     -docker stop mosquitto
     -docker rm mosquitto
+
+# Reuses tests/.venv (paho-mqtt pinned there); see tests/README.md § Setup
+# if the venv is missing.
+#
+# Run the mqtt-dashboard daemon locally (foreground; Ctrl-C to stop).
+dashboard broker='localhost:1883' topic='pi/#' port='8080':
+    @echo "dashboard → http://localhost:{{port}} (broker={{broker}} topic={{topic}})"
+    tests/.venv/bin/python lib/mqtt-dashboard/pibuild-mqtt-dashboard.py \
+        --broker {{broker}} --topic '{{topic}}' --port {{port}}
