@@ -2,9 +2,13 @@
 # Tailscale install + firstboot enrollment. Run inside the chroot.
 LIB_API_VERSION=1
 
-# Install tailscale (from the official Debian apt repo) and drop a
+# Install tailscale using the official Tailscale install.sh script, then drop a
 # oneshot firstboot service that runs `tailscale up` on first boot with
 # the configured auth key, then disables itself.
+#
+# The official install.sh handles OS detection, apt repo setup (legacy or keyring-based),
+# and package installation. For Raspberry Pi OS, no systemd startup is attempted,
+# making it safe for chroot environments.
 #
 # Args:
 #   $1 auth key (tskey-…) — required, positional.
@@ -48,24 +52,18 @@ install_tailscale() {
         esac
     done
 
-    # 1) Set up the Tailscale apt repo for this Pi OS codename.
-    local codename
-    codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
-    [[ -n "$codename" ]] || { echo "install_tailscale: cannot determine VERSION_CODENAME from /etc/os-release" >&2; return 3; }
+    # 1) Run the official Tailscale install.sh script.
+    # It handles OS detection, apt repo setup (legacy or keyring-based),
+    # and package installation. For Raspberry Pi OS, it does not attempt
+    # systemd startup, making it chroot-safe.
+    curl -fsSL https://tailscale.com/install.sh | sh \
+        || { echo "install_tailscale: failed to run official install.sh" >&2; return 3; }
 
-    install -d -m 755 /usr/share/keyrings /etc/apt/sources.list.d
-    curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.noarmor.gpg" \
-        -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
-        || { echo "install_tailscale: failed to fetch Tailscale GPG keyring" >&2; return 3; }
-    curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.tailscale-keyring.list" \
-        -o /etc/apt/sources.list.d/tailscale.list \
-        || { echo "install_tailscale: failed to fetch Tailscale apt sources list" >&2; return 3; }
-
-    # 2) Update apt cache for the new repo, then install tailscale.
-    # (apt_install only runs apt-get update once per build, so we must do it
-    # explicitly here after adding a new repo source.)
-    apt-get update -qq
-    apt_install tailscale
+    # 2) Verify tailscale package was successfully installed.
+    if ! dpkg-query -W tailscale >/dev/null 2>&1; then
+        echo "install_tailscale: tailscale package not found after install.sh" >&2
+        return 3
+    fi
 
     # 3) Render the firstboot service from the template. Escape all
     # replacement values to prevent sed metacharacters from being interpreted.
@@ -84,5 +82,5 @@ install_tailscale() {
 
     # 4) Enable. The unit's ExecStartPost disables it after a successful
     # `tailscale up`.
-    systemctl enable tailscale-firstboot.service
+    systemctl enable tailscale-firstboot.service || { echo "install_tailscale: failed to enable firstboot service" >&2; return 3; }
 }
