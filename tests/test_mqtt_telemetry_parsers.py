@@ -160,8 +160,8 @@ class TestParseUptime:
         assert daemon.parse_uptime("1e5 9000") == 1e5
 
     def test_parse_uptime_empty_string(self):
-        """Empty string raises IndexError (caught as error)."""
-        with pytest.raises(IndexError):
+        """Empty string raises ValueError on empty input."""
+        with pytest.raises(ValueError):
             daemon.parse_uptime("")
 
     def test_parse_uptime_no_space(self):
@@ -185,8 +185,8 @@ class TestParseLoadavg:
         assert daemon.parse_loadavg("4.20 3.10 2.00 2/5 100") == 4.20
 
     def test_parse_loadavg_empty_string(self):
-        """Empty string raises IndexError."""
-        with pytest.raises(IndexError):
+        """Empty string raises ValueError on empty input."""
+        with pytest.raises(ValueError):
             daemon.parse_loadavg("")
 
 

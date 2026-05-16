@@ -2,6 +2,10 @@
 # MQTT telemetry installer. Run inside the chroot.
 LIB_API_VERSION=1
 
+sed_escape() {
+    printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
+}
+
 # Drop the Python daemon, the launcher, and the systemd unit. Substitutes
 # role + broker + cert path into the unit's Environment= lines.
 #
@@ -41,10 +45,14 @@ install_mqtt_telemetry() {
     # systemd unit, with substitutions.
     local dst="/etc/systemd/system/pibuild-mqtt-telemetry.service"
     install -D -m 644 "$LIB_DIR/mqtt-telemetry/pibuild-mqtt-telemetry.service" "$dst"
+    local role_esc broker_esc cert_esc
+    role_esc=$(sed_escape "$role")
+    broker_esc=$(sed_escape "$broker")
+    cert_esc=$(sed_escape "$cert")
     sed -i \
-        -e "s|@@ROLE@@|${role}|g" \
-        -e "s|@@BROKER@@|${broker}|g" \
-        -e "s|@@CERT@@|${cert}|g" \
+        -e "s|@@ROLE@@|${role_esc}|g" \
+        -e "s|@@BROKER@@|${broker_esc}|g" \
+        -e "s|@@CERT@@|${cert_esc}|g" \
         "$dst"
 
     systemctl enable pibuild-mqtt-telemetry.service
