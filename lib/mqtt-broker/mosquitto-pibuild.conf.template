@@ -1,12 +1,12 @@
-# Mosquitto MQTT broker configuration for pi-image-build.
-# Rendered at image build time; placeholders substituted via sed.
+# Mosquitto MQTT broker configuration for pi-image-build. Rendered at
+# image build time; placeholders substituted via sed. Dropped into
+# /etc/mosquitto/conf.d/ — Debian's default /etc/mosquitto/mosquitto.conf
+# already sets `persistence true` + `persistence_location /var/lib/mosquitto/`,
+# so we don't repeat them (mosquitto errors out with 'Duplicate
+# persistence_location' on a second definition).
 
 listener @@PORT@@
 @@AUTH_BLOCK@@
-
-# Persistence
-persistence true
-persistence_location /var/lib/mosquitto/
 
 # Logging
 log_dest syslog
