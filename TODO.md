@@ -64,6 +64,44 @@ its own project; pi-image-build only owns the agent.
 Depends on tailscale being there first (so the broker URL can be a
 tailnet name, not a public-internet thing).
 
+## sim/ — toy-network dev fixture for downstream UIs
+
+A `docker compose` fixture that runs the mqtt broker plus N fake pis
+publishing realistic telemetry, so subscriber-side UIs can be built
+against a plausible producer without flashing hardware. Not a test
+harness — a dev environment.
+
+Shape:
+
+```
+sim/
+├── docker-compose.yml   # broker + pi-a/b/c containers
+└── scenarios/
+    ├── happy.env        # all pis healthy
+    ├── flaky.env        # one pi's watched service is failed
+    └── offline.env      # one pi stops publishing partway
+```
+
+Containers are `python:3-slim` + `paho-mqtt` running the same agent
+script that ships in `modules/mqtt-telemetry/`. No image build, no apt,
+no systemd, no chroot — the agent reads its config from env, so the
+container is just `CMD ["python", "/agent.py"]`. Fidelity we lose:
+nothing the UI will ever see.
+
+Explicitly NOT in scope:
+- Testing image-build, kernel boot, or systemd unit behavior
+  (QEMU + real Pi own those).
+- Testing tailscale reachability (needs TUN + control plane;
+  separate problem if we ever want it).
+
+Build this **with the first UI commit**, not before — otherwise the
+scenarios will be guessed and the fixture will bitrot. If a one-shot
+`scripts/fake-publisher.py` covers the need, prefer that and skip the
+compose setup entirely.
+
+Depends on the mqtt-telemetry agent actually existing on disk
+(currently `modules/mqtt-telemetry/` is schema + module.sh only).
+
 ## Centralized pi command center (re-evaluate after tailscale lands)
 
 The original idea was one CLI (`pi build mpv-loop`, `pi ssh mpv-loop-5ce700`,
@@ -73,3 +111,11 @@ which is small enough to not need a unified tool.
 
 Revisit only if there's something the trio (tailscale + mqtt + per-project
 build wrapper) doesn't cover.
+
+## RANDOM EXTRA THING
+we still need to migrate videosync-server, videosync-client, and aether-game to the new system. boot-report, mqtt-telemetry. videosync-server holds the mqtt broker and the mqtt dashboard. videosync-client is airgapped except for access to videosync-server basically (via the AP) and doesn't need tailscale
+
+we'll also need to migrate whatever else phil made, altho that should be just a matter of making a new module and configuring it similarly to mpv-loop (which is one of the things he asked me to make and which i made quite nicely.
+once this is done we should be able to easily, neatly, cutely, access the dashboard through the aether SSID or through tailscale. whatever. who cares. and then we can track all of our things.)
+
+and going forward we can add more telemetry. ideally, any application should be able to instrument itself with some additional mqtt data and then we have a free consumer already setup. like, the aether-game reporting player scores is kind of a neat idea. we have these fuckin orb/sphere things that phil has that have esp32s, which could also be hooked into this if he can program them.
