@@ -85,6 +85,7 @@ IGNORES=(
     'machine-id'
     '/var/cache/apt/'
     '/var/lib/apt/'
+    '/root/.cache/uv/'
     '/var/lib/dpkg/'
     '/var/log/'
     '/var/lib/systemd/random-seed'
