@@ -18,8 +18,10 @@ optional TAILSCALE_HOSTNAME default=$HOSTNAME
 # by `core` (`SSH_PUBKEY` → `/home/$PI_USER/.ssh/authorized_keys`).
 #
 # Set TAILSCALE_FLAGS=--ssh to opt in to Tailscale SSH (identity-based
-# auth via the tailnet, no pubkey copies needed) — also requires an
-# `ssh:` block in your tailnet ACL or every connection gets denied with
+# auth via the tailnet, no pubkey copies needed). Good for team-shared
+# images — coworkers on the tailnet can SSH in without distributing
+# pubkeys or sharing a password. Requires an `ssh:` block in your
+# tailnet ACL or every connection gets denied with
 # 'tailnet policy does not permit you to SSH to this node'.
 #
 # Recognized flags: --ssh, --accept-routes.

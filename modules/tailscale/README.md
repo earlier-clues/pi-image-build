@@ -9,8 +9,21 @@ disables itself.
 | Name | Required | Default | Notes |
 |---|---|---|---|
 | `TAILSCALE_AUTHKEY` | yes | — | tskey-auth-… from the admin console |
-| `TAILSCALE_HOSTNAME` | no | (uses `/etc/hostname`) | Override the tailnet hostname |
-| `TAILSCALE_FLAGS` | no | `--ssh` | Space-separated. Supported: `--ssh`, `--accept-routes` |
+| `TAILSCALE_HOSTNAME` | no | `$HOSTNAME` | Override the tailnet hostname |
+| `TAILSCALE_FLAGS` | no | (empty) | Space-separated. Supported: `--ssh`, `--accept-routes` |
+
+### `--ssh` or not?
+
+By default, Tailscale SSH is **off**. The Pi answers SSH via OpenSSH
+using the pubkey baked in by `core` (`SSH_PUBKEY`). This is the right
+choice for personal appliances — fewer moving parts, works even before
+`tailscaled` enrolls.
+
+Set `TAILSCALE_FLAGS=--ssh` for images your **team** needs to reach.
+Tailscale SSH authenticates by tailnet identity, so coworkers on the
+same tailnet can `ssh pi@<tailnet-hostname>` without distributing
+pubkeys or sharing a password. Requires an `ssh:` ACL block in your
+tailnet policy — without one, every connection gets denied.
 
 ## Threat model
 
