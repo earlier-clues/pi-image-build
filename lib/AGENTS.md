@@ -41,8 +41,10 @@ Public API (sourced by `bin/build-image.sh`):
 
 - `parse_modules_list <list-file>` → prints names in declared order;
   exit 2 on duplicates or missing file.
-- `resolve_module <name> <payload-dir> <repo-modules-dir>` → prints
-  absolute path; payload-local shadows repo-level; exit 2 if neither.
+- `resolve_module <name> <payload-dir> <repo-modules-dir> [<shared-payload-dir>...]`
+  → prints absolute path. Search order: payload-local → each
+  shared-payload-dir (in declared order) → repo-level. Exit 2 if none
+  match; error message lists every path checked.
 - `validate_schemas <module-dir>...` → sources each `schema.sh` in a
   subshell with `require`/`optional` bound; collects ALL errors before
   exiting; prints `export NAME=VALUE` lines for resolved vars on stdout.

@@ -15,6 +15,9 @@
 #   --base-sha256 HEX        skip URL fetch + sha256 file; trust this hash on cached file
 #   --extra-mb N             extra MB to grow the root partition (default: 1536)
 #   --mount LABEL=PATH       extra dir to mount into the chroot at $MOUNTS_DIR/<label> (repeatable)
+#   --shared-modules PATH    extra payload-shaped dir whose modules/<name>/ is searched
+#                            for module resolution after the primary payload (repeatable).
+#                            Lets sibling payload variants share project-specific modules.
 #   --env-regex REGEX        forward host env vars matching REGEX into the chroot (repeatable)
 #   --env-file PATH          source env vars from PATH before dispatch (default: <payload>/.env if present)
 #   --cache DIR              base-image cache (default: $HOME/.cache/pi-image-build)
@@ -59,6 +62,7 @@ CACHE="${PIBUILD_CACHE:-$HOME/.cache/pi-image-build}"
 ENV_FILE=""
 MOUNTS=()
 ENV_REGEXES=()
+SHARED_MODULES_DIRS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -68,6 +72,7 @@ while [[ $# -gt 0 ]]; do
         --base-sha256)       BASE_SHA256="$2"; shift 2 ;;
         --extra-mb)          EXTRA_MB="$2"; shift 2 ;;
         --mount)             MOUNTS+=("$2"); shift 2 ;;
+        --shared-modules)    SHARED_MODULES_DIRS+=("$2"); shift 2 ;;
         --env-regex)         ENV_REGEXES+=("$2"); shift 2 ;;
         --env-file)          ENV_FILE="$2"; shift 2 ;;
         --cache)             CACHE="$2"; shift 2 ;;
@@ -87,6 +92,17 @@ done
 # Resolve payload to absolute path now so contract dispatch (next) and
 # subsequent docker mounts both use the same canonical path.
 PAYLOAD_DIR="$(cd "$PAYLOAD_DIR" && pwd)"
+
+# Canonicalize shared-modules dirs the same way so prefix-tests below
+# (host_dir == shared_dir/*) match exactly.
+if (( ${#SHARED_MODULES_DIRS[@]} )); then
+    for _i in "${!SHARED_MODULES_DIRS[@]}"; do
+        _p="${SHARED_MODULES_DIRS[$_i]}"
+        [[ -d "$_p" ]] || { echo "error: --shared-modules path not found: $_p" >&2; exit 2; }
+        SHARED_MODULES_DIRS[$_i]="$(cd "$_p" && pwd)"
+    done
+    unset _i _p
+fi
 
 # Contract dispatch: modules.list (new) > build.sh (legacy) > error.
 if [[ -f "$PAYLOAD_DIR/modules.list" ]]; then
@@ -151,11 +167,13 @@ if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
     MODULE_HOST_DIRS=()
     MODULE_CHROOT_DIRS=()
     for name in "${MODULE_NAMES[@]}"; do
-        host_dir="$(resolve_module "$name" "$PAYLOAD_DIR" "$MODULES_REPO_DIR")"
+        host_dir="$(resolve_module "$name" "$PAYLOAD_DIR" "$MODULES_REPO_DIR" \
+            ${SHARED_MODULES_DIRS[@]+"${SHARED_MODULES_DIRS[@]}"})"
         MODULE_HOST_DIRS+=("$host_dir")
         # Translate host-side path to chroot-side path:
-        # - <PAYLOAD_DIR>/modules/<name>  → /tmp/pibuild/payload/modules/<name>
-        # - <MODULES_REPO_DIR>/<name>     → /tmp/pibuild/modules/<name>
+        # - <PAYLOAD_DIR>/modules/<name>     → /tmp/pibuild/payload/modules/<name>
+        # - <SHARED_MODULES_DIRS[i]>/...     → /tmp/pibuild/shared-modules/<i>/...
+        # - <MODULES_REPO_DIR>/<name>        → /tmp/pibuild/modules/<name>
         # Use [[ == ]] string-prefix matching rather than a `case` glob:
         # PAYLOAD_DIR could in principle contain glob metachars, and
         # case-glob would match unpredictably. [[ "$host_dir" == "$PAYLOAD_DIR"/* ]]
@@ -165,8 +183,19 @@ if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
         elif [[ "$host_dir" == "$MODULES_REPO_DIR"/* ]]; then
             MODULE_CHROOT_DIRS+=("/tmp/pibuild/modules/${host_dir#"$MODULES_REPO_DIR"/}")
         else
-            echo "internal error: unexpected module path $host_dir" >&2
-            exit 4
+            shared_matched=0
+            for shared_i in "${!SHARED_MODULES_DIRS[@]}"; do
+                shared_dir="${SHARED_MODULES_DIRS[$shared_i]}"
+                if [[ "$host_dir" == "$shared_dir"/* ]]; then
+                    MODULE_CHROOT_DIRS+=("/tmp/pibuild/shared-modules/$shared_i/${host_dir#"$shared_dir"/}")
+                    shared_matched=1
+                    break
+                fi
+            done
+            if (( ! shared_matched )); then
+                echo "internal error: unexpected module path $host_dir" >&2
+                exit 4
+            fi
         fi
     done
     ok "modules: ${MODULE_NAMES[*]}"
@@ -288,6 +317,13 @@ if [[ "$PAYLOAD_CONTRACT" == "modules" ]]; then
         -v "$RUN_MODULES_SH":/pibuild/run-modules.sh:ro
         -e "BUILD_SCRIPT=/tmp/pibuild/run-modules.sh"
     )
+    # Mount each shared-modules dir under /pibuild/shared-modules/<i> so
+    # the chroot-side paths emitted into run-modules.sh resolve.
+    if (( ${#SHARED_MODULES_DIRS[@]} )); then
+        for shared_i in "${!SHARED_MODULES_DIRS[@]}"; do
+            DOCKER_ARGS+=(-v "${SHARED_MODULES_DIRS[$shared_i]}":/pibuild/shared-modules/$shared_i:ro)
+        done
+    fi
 fi
 
 # Canonical customization vars: forward if set in the host env.

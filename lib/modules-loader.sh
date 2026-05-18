@@ -45,29 +45,55 @@ parse_modules_list() {
     fi
 }
 
-# resolve_module <name> <payload-dir> <repo-modules-dir>
+# resolve_module <name> <payload-dir> <repo-modules-dir> [<shared-payload-dir>...]
 #   Prints the absolute path to <name>'s module dir on stdout.
-#   Checks <payload-dir>/modules/<name>/ first (payload-local shadows),
-#   then <repo-modules-dir>/<name>/. Aborts with exit 2 if neither exists.
+#   Search order:
+#     1. <payload-dir>/modules/<name>/         (payload-local; shadows everything)
+#     2. each <shared-payload-dir>/modules/<name>/  (in declared order)
+#     3. <repo-modules-dir>/<name>/            (generic infra)
+#   Aborts with exit 2 if none exists; the error lists every path checked.
+#
+#   Shared-payload dirs let multiple sibling payload variants share
+#   project-specific modules (e.g. a videosync `videosync-server` module
+#   reused across server, standalone, and arcade variants) without
+#   polluting the generic <repo-modules-dir>.
 resolve_module() {
     local name="$1"
     local payload_dir="$2"
     local repo_modules_dir="$3"
+    shift 3
+    local -a shared_payload_dirs=("$@")
 
-    local payload_module_dir="$payload_dir/modules/$name"
-    local repo_module_dir="$repo_modules_dir/$name"
-
-    if [[ -d "$payload_module_dir" ]]; then
-        echo "$payload_module_dir"
+    local candidate
+    candidate="$payload_dir/modules/$name"
+    if [[ -d "$candidate" ]]; then
+        echo "$candidate"
         return 0
     fi
 
-    if [[ -d "$repo_module_dir" ]]; then
-        echo "$repo_module_dir"
+    local shared_dir
+    for shared_dir in ${shared_payload_dirs[@]+"${shared_payload_dirs[@]}"}; do
+        candidate="$shared_dir/modules/$name"
+        if [[ -d "$candidate" ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    candidate="$repo_modules_dir/$name"
+    if [[ -d "$candidate" ]]; then
+        echo "$candidate"
         return 0
     fi
 
-    echo "error: module not found: $name (checked $payload_module_dir and $repo_module_dir)" >&2
+    {
+        echo "error: module not found: $name"
+        echo "  checked $payload_dir/modules/$name"
+        for shared_dir in ${shared_payload_dirs[@]+"${shared_payload_dirs[@]}"}; do
+            echo "  checked $shared_dir/modules/$name"
+        done
+        echo "  checked $repo_modules_dir/$name"
+    } >&2
     return 2
 }
 

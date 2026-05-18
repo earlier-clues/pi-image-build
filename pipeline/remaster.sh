@@ -59,7 +59,12 @@ umount_all() {
     # Unmount in reverse order. Bind-mounted payload/lib/mounts go first
     # because they're inside the rootfs.
     if [[ -d "$MNT/tmp/pibuild" ]]; then
-        for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib" "$MNT/tmp/pibuild/modules"; do
+        for sub in \
+            "$MNT/tmp/pibuild/mounts/"*/ \
+            "$MNT/tmp/pibuild/shared-modules/"*/ \
+            "$MNT/tmp/pibuild/payload" \
+            "$MNT/tmp/pibuild/lib" \
+            "$MNT/tmp/pibuild/modules"; do
             [[ -d "$sub" ]] && umount "$sub" 2>/dev/null || true
         done
     fi
@@ -151,6 +156,18 @@ if [[ -d /pibuild/modules ]]; then
     mount --bind /pibuild/modules "$PIBUILD/modules"
 fi
 
+# Shared-modules dirs: indexed sibling payload roots whose modules/ get
+# searched after the primary payload's. Mounted into the chroot at the
+# same indexed path the loader emitted into run-modules.sh.
+if [[ -d /pibuild/shared-modules ]]; then
+    for shared_dir in /pibuild/shared-modules/*/; do
+        [[ -d "$shared_dir" ]] || continue
+        idx="$(basename "$shared_dir")"
+        install -d -m 755 "$PIBUILD/shared-modules/$idx"
+        mount --bind "$shared_dir" "$PIBUILD/shared-modules/$idx"
+    done
+fi
+
 # Synthetic runner emitted by the loader (new-contract builds only).
 if [[ -f /pibuild/run-modules.sh ]]; then
     install -m 755 /pibuild/run-modules.sh "$PIBUILD/run-modules.sh"
@@ -216,7 +233,12 @@ ok "payload customization done"
 # Unmount bind mounts before removing the dirs, otherwise rm follows into
 # the source trees on the container.
 
-for sub in "$MNT/tmp/pibuild/mounts/"*/ "$MNT/tmp/pibuild/payload" "$MNT/tmp/pibuild/lib" "$MNT/tmp/pibuild/modules"; do
+for sub in \
+    "$MNT/tmp/pibuild/mounts/"*/ \
+    "$MNT/tmp/pibuild/shared-modules/"*/ \
+    "$MNT/tmp/pibuild/payload" \
+    "$MNT/tmp/pibuild/lib" \
+    "$MNT/tmp/pibuild/modules"; do
     [[ -d "$sub" ]] && umount "$sub" 2>/dev/null || true
 done
 rm -rf "$MNT/tmp/pibuild"
