@@ -1,4 +1,4 @@
-# pi-image-build
+# pi-build
 
 A small, generic Pi OS image customizer. Decompresses the official Raspberry Pi OS Lite (arm64) image, mounts loopback, runs a payload's `build.sh` inside an arm64 chroot, repacks. The pipeline is dumb: it knows how to manipulate images. Payloads know what they want done inside.
 
@@ -119,7 +119,7 @@ Available repo-level modules:
 
 ## Build something real
 
-The convention is: each project ships its own payload directory and a thin wrapper that exports the right env vars and invokes pi-image-build:
+The convention is: each project ships its own payload directory and a thin wrapper that exports the right env vars and invokes pi-build:
 
 ```bash
 # in some-project/scripts/build-foo-image.sh
@@ -128,13 +128,13 @@ source "$PROJECT/.env"
 set +a
 export ENCRYPTED_PASSWORD="$(openssl passwd -6 "$PI_PASSWORD")"
 export SSH_PUBKEY="$(cat "$SSH_PUBKEY_FILE")"
-exec ../pi-image-build/bin/build-image.sh "$PROJECT/payload/foo" \
+exec ../pi-build/bin/build-image.sh "$PROJECT/payload/foo" \
     --output-format xz \
     --env-regex 'AP_.*|VIDEO_SYNC_.*|MONITOR_INDEX' \
     --mount game=../some-other-repo
 ```
 
-The wrapper owns: which env vars exist, where the SSH key lives, which extra mounts to pass. pi-image-build owns: how to actually build the image.
+The wrapper owns: which env vars exist, where the SSH key lives, which extra mounts to pass. pi-build owns: how to actually build the image.
 
 ## Caveats
 

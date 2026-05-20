@@ -1,4 +1,4 @@
-# pi-image-build
+# pi-build
 
 Last verified: 2026-05-16
 
