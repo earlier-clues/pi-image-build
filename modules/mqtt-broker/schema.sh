@@ -16,4 +16,8 @@ optional MQTT_BROKER_AUTH default=anonymous
 # standard patterns (payload dir or --mount).
 optional MQTT_BROKER_PASSWD_PATH default=
 
+# WebSocket listener port for browser clients (MQTT-over-WebSocket).
+# Empty = disabled. Typical value: 9001.
+optional MQTT_BROKER_WS_PORT default=
+
 # TLS is not currently supported. Future enhancement; see modules/mqtt-broker/README.md.

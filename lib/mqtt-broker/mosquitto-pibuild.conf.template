@@ -7,7 +7,7 @@
 
 listener @@PORT@@
 @@AUTH_BLOCK@@
-
+@@WS_BLOCK@@
 # Logging
 log_dest syslog
 log_type error

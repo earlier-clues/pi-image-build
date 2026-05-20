@@ -24,6 +24,7 @@ install_mqtt_broker() {
     local port="1883"
     local auth_mode="anonymous"
     local passwd_file=""
+    local ws_port=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -36,6 +37,9 @@ install_mqtt_broker() {
                 [[ -n "${2:-}" ]] || { echo "install_mqtt_broker: --passwd-file needs an argument" >&2; return 2; }
                 auth_mode="passwd"
                 passwd_file="$2"; shift 2 ;;
+            --ws-port)
+                [[ -n "${2:-}" ]] || { echo "install_mqtt_broker: --ws-port needs an argument" >&2; return 2; }
+                ws_port="$2"; shift 2 ;;
             *)
                 echo "install_mqtt_broker: unknown flag '$1'" >&2; return 2 ;;
         esac
@@ -66,9 +70,17 @@ install_mqtt_broker() {
     port_esc=$(sed_escape "$port")
     auth_block_esc=$(sed_escape "$auth_block")
 
+    local ws_block=""
+    if [[ -n "$ws_port" ]]; then
+        ws_block="\nlistener ${ws_port}\nprotocol websockets\n${auth_block}"
+    fi
+    local ws_block_esc
+    ws_block_esc=$(sed_escape "$ws_block")
+
     sed -i \
         -e "s|@@PORT@@|${port_esc}|g" \
         -e "s|@@AUTH_BLOCK@@|${auth_block_esc}|g" \
+        -e "s|@@WS_BLOCK@@|${ws_block_esc}|g" \
         "$dst"
 
     # If password file is specified, copy it to the rootfs with restricted permissions

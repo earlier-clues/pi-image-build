@@ -10,7 +10,8 @@ See `schema.sh` for authoritative declarations. Quick reference:
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `MQTT_BROKER_PORT` | `1883` | Listener port. |
+| `MQTT_BROKER_PORT` | `1883` | TCP listener port. |
+| `MQTT_BROKER_WS_PORT` | (none) | WebSocket listener port for browser clients. Empty = disabled. |
 | `MQTT_BROKER_AUTH` | `anonymous` | `anonymous` or `passwd`. |
 | `MQTT_BROKER_PASSWD_PATH` | (none) | Password file path (required if `AUTH=passwd`). |
 

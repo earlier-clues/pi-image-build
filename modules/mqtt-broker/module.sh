@@ -4,6 +4,10 @@ source "$LIB_DIR/mqtt-broker.sh"
 
 _mb_args=( --port "$MQTT_BROKER_PORT" )
 
+if [[ -n "${MQTT_BROKER_WS_PORT:-}" ]]; then
+    _mb_args+=( --ws-port "$MQTT_BROKER_WS_PORT" )
+fi
+
 # Validate and apply auth mode
 case "$MQTT_BROKER_AUTH" in
     anonymous)
